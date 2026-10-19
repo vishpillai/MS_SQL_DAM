@@ -128,7 +128,7 @@ jobs:
 
       - name: Install, verify service, and clean up
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           test_dir="$(mktemp -d)"
           cleanup() {
             sudo systemctl disable --now sqldam.service >/dev/null 2>&1 || true

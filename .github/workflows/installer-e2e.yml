@@ -88,6 +88,8 @@ jobs:
             $installDirectory = Join-Path ${env:ProgramFiles} 'SqlDam'
             if (-not (Test-Path (Join-Path $installDirectory 'SqlDam.Desktop.exe'))) { throw 'Desktop executable was not installed.' }
             if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'Service did not create its ProgramData database.' }
+            $organization = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam').BootstrapOrganizationName
+            if ($organization -ne 'SQL DAM CI') { throw "MSI did not preserve the organization name. Found '$organization'." }
             Write-Output "Windows install health: $($health.status); monitoring: $($health.monitoring)"
 
             $uninstall = Start-Process -FilePath msiexec.exe -ArgumentList @('/x', $env:SQLDAM_MSI, '/qn', '/norestart', '/l*v', $uninstallLog) -Wait -PassThru
@@ -156,9 +158,9 @@ jobs:
           test -x /opt/sqldam/SqlDam.Web
           sudo find /var/lib/sqldam -maxdepth 2 -type f -printf '%p %s bytes\n'
           sudo systemctl show -p Environment --value sqldam.service | sed -E 's/(Authentication__ClientSecret=)[^ ]+/\1[REDACTED]/g'
-          test -s /var/lib/sqldam/sqldam.db
-          test "$(stat -c '%a' /etc/sqldam/sqldam.env)" = '600'
-          test "$(stat -c '%a' /var/lib/sqldam)" = '700'
+          sudo test -s /var/lib/sqldam/sqldam.db
+          test "$(sudo stat -c '%a' /etc/sqldam/sqldam.env)" = '600'
+          test "$(sudo stat -c '%a' /var/lib/sqldam)" = '700'
           service_user="$(ps -o user= -p "$(systemctl show -p MainPID --value sqldam.service)" | xargs)"
           test "$service_user" = 'sqldam'
 

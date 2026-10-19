@@ -19,6 +19,29 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 });
 if (OperatingSystem.IsWindows())
 {
+    using var installerSettings = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+        @"SOFTWARE\SqlDam Security\SqlDam");
+    if (installerSettings is not null)
+    {
+        foreach (var (configurationKey, registryValueName) in new[]
+                 {
+                     ("Storage:DataDirectory", "StorageDataDirectory"),
+                     ("Bootstrap:OrganizationName", "BootstrapOrganizationName"),
+                     ("Bootstrap:OrganizationIdentifier", "BootstrapOrganizationIdentifier"),
+                     ("Bootstrap:SuperAdminEmail", "BootstrapSuperAdminEmail")
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(builder.Configuration[configurationKey]) &&
+                installerSettings.GetValue(registryValueName) is string value &&
+                !string.IsNullOrWhiteSpace(value))
+            {
+                builder.Configuration[configurationKey] = value;
+            }
+        }
+    }
+}
+if (OperatingSystem.IsWindows())
+{
     builder.Host.UseWindowsService();
 }
 builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:5055");

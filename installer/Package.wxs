@@ -66,8 +66,7 @@
                         Description="Enterprise SQL Database Activity Monitor (DAM) Service with Extended Events and SQL Audit Collection"
                         Start="auto"
                         Account="LocalSystem"
-                        ErrorControl="normal"
-                        Arguments="--Storage:DataDirectory &quot;[SQLDAMDATADIR]&quot; --Bootstrap:OrganizationName &quot;[ORGNAME]&quot; --Bootstrap:OrganizationIdentifier &quot;[ORGIDENTIFIER]&quot; --Bootstrap:SuperAdminEmail &quot;[SUPERADMINEMAIL]&quot;">
+                        ErrorControl="normal">
           <!-- Auto-restart on unexpected termination so a transient fault never
                leaves the instance unmonitored; the reset period means an
                occasional, recovered crash does not count against later ones. -->
@@ -118,6 +117,10 @@
                         Type="integer"
                         Value="1"
                         KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="StorageDataDirectory" Type="string" Value="[SQLDAMDATADIR]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapOrganizationName" Type="string" Value="[ORGNAME]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapOrganizationIdentifier" Type="string" Value="[ORGIDENTIFIER]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapSuperAdminEmail" Type="string" Value="[SUPERADMINEMAIL]" />
       </Component>
     </ComponentGroup>
 

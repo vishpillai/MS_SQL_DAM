@@ -1,0 +1,77 @@
+name: Linux installer smoke test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/linux-installer-smoke.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag whose Linux archive should be tested
+        required: true
+        type: string
+        default: v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  linux-installer-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release archive
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.0' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          curl --fail --location --silent --show-error \
+            "https://github.com/vishpillai/MS_SQL_DAM/releases/download/${RELEASE_TAG}/SQL-DAM-linux-x64.tar.gz" \
+            --output "$RUNNER_TEMP/sqldam-linux.tar.gz"
+
+      - name: Run packaged app smoke test
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          app_pid=''
+          cleanup() {
+            if [[ -n "$app_pid" ]]; then
+              kill "$app_pid" 2>/dev/null || true
+              wait "$app_pid" 2>/dev/null || true
+            fi
+            rm -rf "$test_dir"
+          }
+          trap cleanup EXIT
+
+          tar -xzf "$RUNNER_TEMP/sqldam-linux.tar.gz" -C "$test_dir"
+          app="$test_dir/SQL-DAM-linux-x64/app/SqlDam.Web"
+          test -x "$app"
+
+          ASPNETCORE_ENVIRONMENT=Development \
+          ASPNETCORE_URLS=http://127.0.0.1:5055 \
+          Storage__DataDirectory="$test_dir/data" \
+            "$app" >"$test_dir/app.log" 2>&1 &
+          app_pid=$!
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5055/health >"$test_dir/health.json"; then
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              cat "$test_dir/app.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [[ ! -s "$test_dir/health.json" ]]; then
+            cat "$test_dir/app.log"
+            echo 'The Linux app did not become healthy within 30 seconds.' >&2
+            exit 1
+          fi
+          jq --exit-status '.status == "ok"' "$test_dir/health.json"
+          curl --fail --silent http://127.0.0.1:5055/ | grep --quiet 'Database activity'

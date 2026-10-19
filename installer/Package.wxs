@@ -21,6 +21,9 @@
     <Property Id="SUPERADMINEMAIL" Secure="yes" />
     <Property Id="ORGNAME" Secure="yes" />
     <Property Id="ORGIDENTIFIER" Secure="yes" />
+    <Property Id="OIDCAUTHORITY" Secure="yes" />
+    <Property Id="OIDCCLIENTID" Secure="yes" />
+    <Property Id="OIDCCLIENTSECRET" Secure="yes" Hidden="yes" />
 
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SQL DAM Desktop now" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
@@ -124,6 +127,10 @@
         <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapOrganizationName" Type="string" Value="[ORGNAME]" />
         <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapOrganizationIdentifier" Type="string" Value="[ORGIDENTIFIER]" />
         <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="BootstrapSuperAdminEmail" Type="string" Value="[SUPERADMINEMAIL]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="AuthenticationAuthority" Type="string" Value="[OIDCAUTHORITY]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="AuthenticationClientId" Type="string" Value="[OIDCCLIENTID]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="AuthenticationClientSecret" Type="string" Value="[OIDCCLIENTSECRET]" />
+        <RegistryValue Root="HKLM" Key="Software\SqlDam Security\SqlDam" Name="AuthenticationClientSecretProtected" Type="string" Value="" />
       </Component>
     </ComponentGroup>
 

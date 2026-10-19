@@ -2,6 +2,8 @@ using SqlDam.Web.Components;
 using SqlDam.Web.Data;
 using SqlDam.Web.Models;
 using SqlDam.Web.Services;
+using System.Security.Cryptography;
+using System.Text;
 using System.Net;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
@@ -20,7 +22,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 if (OperatingSystem.IsWindows())
 {
     using var installerSettings = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
-        @"SOFTWARE\SqlDam Security\SqlDam");
+        @"SOFTWARE\SqlDam Security\SqlDam", writable: true);
     if (installerSettings is not null)
     {
         foreach (var (configurationKey, registryValueName) in new[]
@@ -28,7 +30,9 @@ if (OperatingSystem.IsWindows())
                      ("Storage:DataDirectory", "StorageDataDirectory"),
                      ("Bootstrap:OrganizationName", "BootstrapOrganizationName"),
                      ("Bootstrap:OrganizationIdentifier", "BootstrapOrganizationIdentifier"),
-                     ("Bootstrap:SuperAdminEmail", "BootstrapSuperAdminEmail")
+                     ("Bootstrap:SuperAdminEmail", "BootstrapSuperAdminEmail"),
+                     ("Authentication:Authority", "AuthenticationAuthority"),
+                     ("Authentication:ClientId", "AuthenticationClientId")
                  })
         {
             if (string.IsNullOrWhiteSpace(builder.Configuration[configurationKey]) &&
@@ -37,6 +41,33 @@ if (OperatingSystem.IsWindows())
             {
                 builder.Configuration[configurationKey] = value;
             }
+        }
+
+        var configuredClientSecret = builder.Configuration["Authentication:ClientSecret"];
+        if (installerSettings.GetValue("AuthenticationClientSecret") is string clientSecret &&
+            !string.IsNullOrWhiteSpace(clientSecret))
+        {
+            var protectedSecret = ProtectedData.Protect(
+                Encoding.UTF8.GetBytes(clientSecret),
+                optionalEntropy: null,
+                DataProtectionScope.LocalMachine);
+            installerSettings.SetValue(
+                "AuthenticationClientSecretProtected",
+                Convert.ToBase64String(protectedSecret),
+                Microsoft.Win32.RegistryValueKind.String);
+            installerSettings.DeleteValue("AuthenticationClientSecret", throwOnMissingValue: false);
+            if (string.IsNullOrWhiteSpace(configuredClientSecret))
+                builder.Configuration["Authentication:ClientSecret"] = clientSecret;
+        }
+        else if (string.IsNullOrWhiteSpace(configuredClientSecret) &&
+                 installerSettings.GetValue("AuthenticationClientSecretProtected") is string protectedValue &&
+                 !string.IsNullOrWhiteSpace(protectedValue))
+        {
+            var clientSecretBytes = ProtectedData.Unprotect(
+                Convert.FromBase64String(protectedValue),
+                optionalEntropy: null,
+                DataProtectionScope.LocalMachine);
+            builder.Configuration["Authentication:ClientSecret"] = Encoding.UTF8.GetString(clientSecretBytes);
         }
     }
 }

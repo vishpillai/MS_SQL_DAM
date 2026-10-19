@@ -36,28 +36,10 @@ jobs:
       - name: Install, verify service, and uninstall MSI
         shell: pwsh
         run: |
-          $environmentPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
-          $environmentNames = @('Authentication__Authority', 'Authentication__ClientId', 'Authentication__ClientSecret')
-          $previousValues = @{}
-          foreach ($name in $environmentNames) {
-            $previousValues[$name] = (Get-ItemProperty -Path $environmentPath -Name $name -ErrorAction SilentlyContinue).$name
-          }
-
-          $testValues = @{
-            Authentication__Authority = 'https://login.example.invalid'
-            Authentication__ClientId = 'sqldam-installer-test'
-            Authentication__ClientSecret = 'installer-test-only-not-a-secret'
-          }
-          foreach ($name in $environmentNames) {
-            Set-ItemProperty -Path $environmentPath -Name $name -Value $testValues[$name] -Type String
-            [Environment]::SetEnvironmentVariable($name, $testValues[$name], 'Machine')
-            [Environment]::SetEnvironmentVariable($name, $testValues[$name], 'Process')
-          }
-
           $installLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-install.log'
           $uninstallLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-uninstall.log'
           try {
-            $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'SUPERADMINEMAIL=sqldam-ci@example.invalid', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
+            $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'SUPERADMINEMAIL=sqldam-ci@example.invalid', 'OIDCAUTHORITY=https://login.example.invalid', 'OIDCCLIENTID=sqldam-installer-test', 'OIDCCLIENTSECRET=installer-test-only-not-a-secret', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
             $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
             if ($install.ExitCode -notin @(0, 3010)) {
               Select-String -LiteralPath $installLog -Pattern 'Return value 3|Error 19[0-9][0-9]|failed to start|service.*failed' -Context 3, 5 | Select-Object -Last 40
@@ -90,6 +72,9 @@ jobs:
             if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'Service did not create its ProgramData database.' }
             $organization = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam').BootstrapOrganizationName
             if ($organization -ne 'SQL DAM CI') { throw "MSI did not preserve the organization name. Found '$organization'." }
+            $installerSettings = Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam'
+            if ([string]::IsNullOrWhiteSpace($installerSettings.AuthenticationClientSecretProtected)) { throw 'MSI client secret was not protected with DPAPI.' }
+            if ($installerSettings.PSObject.Properties.Name -contains 'AuthenticationClientSecret') { throw 'Plaintext MSI client secret remained in the registry.' }
             Write-Output "Windows install health: $($health.status); monitoring: $($health.monitoring)"
 
             $uninstall = Start-Process -FilePath msiexec.exe -ArgumentList @('/x', $env:SQLDAM_MSI, '/qn', '/norestart', '/l*v', $uninstallLog) -Wait -PassThru
@@ -100,16 +85,6 @@ jobs:
             if (Get-Service -Name SqlDam -ErrorAction SilentlyContinue) { throw 'SqlDam service remained installed after MSI uninstall.' }
             if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'MSI uninstall unexpectedly removed customer database data.' }
             Write-Output 'MSI uninstall passed; customer database was preserved.'
-          } finally {
-            foreach ($name in $environmentNames) {
-              if ($null -eq $previousValues[$name]) {
-                Remove-ItemProperty -Path $environmentPath -Name $name -ErrorAction SilentlyContinue
-                [Environment]::SetEnvironmentVariable($name, $null, 'Machine')
-              } else {
-                Set-ItemProperty -Path $environmentPath -Name $name -Value $previousValues[$name] -Type String
-                [Environment]::SetEnvironmentVariable($name, $previousValues[$name], 'Machine')
-              }
-            }
           }
 
   linux-service:

@@ -107,7 +107,7 @@ SQL DAM provides a complete native Windows deployment package that bundles both 
 ### Installation for Clients
 
 - Download the [Windows x64 MSI](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi) and run it as Administrator.
-- In the setup wizard, enter your organization name and identifier, then the email of the first Super Admin. Create that account in your identity provider and configure the OIDC service settings before installing, because production startup requires OIDC.
+- In the setup wizard, enter your organization name and identifier, the first Super Admin's existing identity-provider email, and the OIDC HTTPS authority, client ID, and client secret. The secret is protected with Windows machine-scoped DPAPI.
 - The installer installs to `C:\Program Files\SqlDam\`, starts the `SqlDam` Windows Service automatically, and places a **"SQL DAM Desktop"** shortcut on the Desktop and Start Menu.
 - Operators can launch the **SQL DAM Desktop** app directly or open `http://127.0.0.1:5055/` in any browser.
 

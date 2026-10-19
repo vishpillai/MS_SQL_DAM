@@ -12,7 +12,7 @@ All notable changes to SQL DAM are documented here. This project follows [Keep a
 
 - Persist monitored-feed cursors only after the captured event batch is written.
 - Convert activity date filters using the browser's local time zone.
-- Explain Windows OIDC prerequisites in the MSI setup wizard.
+- Collect Windows OIDC client settings in the MSI wizard and protect the client secret with machine-scoped DPAPI.
 
 ## [1.0.0] - 2026-10-19
 

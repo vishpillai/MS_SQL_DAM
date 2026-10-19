@@ -24,7 +24,7 @@ This folder contains the ready-to-deploy `.msi` Windows installer for **SQL DAM 
 - **Account**: the service runs as `LocalSystem` for simplicity (no extra SQL login grants needed to use Windows-integrated authentication against monitored instances). It never accepts inbound network connections — the web UI binds to `127.0.0.1` only.
 - **Crash recovery**: the Service Control Manager is configured to restart `SqlDam` automatically after the 1st, 2nd, and 3rd unexpected terminations (60s delay, failure count resets after 1 day of stability), so a transient fault never leaves an instance unmonitored for long.
 - **Data at rest**: the Data Protection key ring that protects stored SQL login passwords is itself encrypted at rest using Windows machine-scoped DPAPI, not left as plain XML.
-- **Data directory**: runtime data (SQLite database, Data Protection keys) is stored under `%ProgramData%\SqlDam`, not under `C:\Program Files\SqlDam`, per Windows guidance that Program Files should hold read-only program binaries. The installer passes this location to the service via a `--Storage:DataDirectory=...` startup argument; uninstalling removes the empty directory scaffold but deliberately leaves any existing database/keys in place rather than destroying collected activity data.
+- **Data directory**: runtime data (SQLite database, Data Protection keys) is stored under `%ProgramData%\SqlDam`, not under `C:\Program Files\SqlDam`, per Windows guidance that Program Files should hold read-only program binaries. The MSI stores the data directory and bootstrap organization settings in the SQL DAM registry key, which the service reads at startup; uninstalling removes the empty directory scaffold but deliberately leaves existing database/keys in place.
 
 ---
 
@@ -33,9 +33,10 @@ This folder contains the ready-to-deploy `.msi` Windows installer for **SQL DAM 
 Download the standalone MSI from the [latest SQL DAM GitHub release](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi). The MSI bundles the service and desktop client; the generated package does not need files from this source folder. The desktop client requires the Microsoft Edge WebView2 Runtime, which is preinstalled on most supported Windows systems but is not bundled in the MSI. Install the [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if it is missing.
 
 ### Installation
-1. Run the downloaded `SqlDam-Setup-v1.0.0.msi` on the client's Windows machine as Administrator.
-2. In the setup wizard, enter your organization name and identifier, then the initial Super Admin's email. Configure production OIDC settings for the Windows service before launch. The account must exist in your identity provider; the wizard creates its SQL DAM role assignment, not its external login or password.
-3. The installer extracts all files to `C:\Program Files\SqlDam\`:
+1. Before installing, configure these **machine-level system environment variables** for the Windows service: `Authentication__Authority` (HTTPS URL), `Authentication__ClientId`, and `Authentication__ClientSecret`. Restart Windows after setting them so the Service Control Manager receives them.
+2. Run the downloaded `SqlDam-Setup-v1.0.0.msi` as Administrator.
+3. In the setup wizard, enter your organization name and identifier, then the initial Super Admin's email. The account must exist in your identity provider; the wizard creates its SQL DAM role assignment, not its external login or password.
+4. The installer extracts all files to `C:\Program Files\SqlDam\`:
    - Registers and starts the background **SQL Database Activity Monitor** (`SqlDam`) Windows Service, with its data stored under `%ProgramData%\SqlDam`.
    - Installs the **SQL DAM Desktop** client.
    - Creates a **Desktop Shortcut** and a **Start Menu Shortcut** named **SQL DAM Desktop**.

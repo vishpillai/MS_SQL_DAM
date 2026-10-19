@@ -73,6 +73,40 @@ public sealed class ActivityEventService
 
         using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
+        InsertBatchInTransaction(connection, transaction, events, defaultTenantId);
+        transaction.Commit();
+    }
+
+    public void PersistBatchAndCursors(
+        IReadOnlyCollection<ActivityEvent> events,
+        Guid defaultTenantId,
+        Guid sourceId,
+        IReadOnlyCollection<(string Mechanism, string FileName, long Offset)> cursors)
+    {
+        if (_logStore.IsEnabled)
+        {
+            _logStore.PersistBatchAndCursors(events, defaultTenantId, sourceId, cursors);
+            return;
+        }
+
+        using var connection = _database.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        InsertBatchInTransaction(connection, transaction, events, defaultTenantId);
+        foreach (var cursor in cursors)
+        {
+            SaveCursorInTransaction(connection, transaction, sourceId, cursor);
+        }
+        transaction.Commit();
+    }
+
+    private static void InsertBatchInTransaction(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyCollection<ActivityEvent> events,
+        Guid? defaultTenantId)
+    {
+        if (events.Count == 0) return;
+
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -118,8 +152,26 @@ public sealed class ActivityEventService
             detail.Value = evt.DetailXml;
             command.ExecuteNonQuery();
         }
+    }
 
-        transaction.Commit();
+    private static void SaveCursorInTransaction(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid sourceId,
+        (string Mechanism, string FileName, long Offset) cursor)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO source_cursors (source_id, mechanism, last_file_name, last_file_offset)
+            VALUES ($id, $mechanism, $file, $offset)
+            ON CONFLICT(source_id, mechanism) DO UPDATE SET last_file_name = $file, last_file_offset = $offset
+            """;
+        command.Parameters.AddWithValue("$id", sourceId.ToString());
+        command.Parameters.AddWithValue("$mechanism", cursor.Mechanism);
+        command.Parameters.AddWithValue("$file", cursor.FileName);
+        command.Parameters.AddWithValue("$offset", cursor.Offset);
+        command.ExecuteNonQuery();
     }
 
     public List<ActivityEvent> GetRecent(int take = 200, Guid? sourceId = null, Guid? tenantId = null, ActivityEventFilter? filter = null)

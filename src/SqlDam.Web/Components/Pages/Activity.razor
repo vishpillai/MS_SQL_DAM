@@ -6,6 +6,7 @@
 @inject ActivityEventService EventService
 @inject SqlSourceService SourceService
 @inject TenantContext TenantCtx
+@inject IJSRuntime JS
 
 <PageTitle>Activity | SQL DAM</PageTitle>
 
@@ -136,18 +137,13 @@ else
     private DateTime? _toLocal;
     private string? _filterError;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _sources = SourceService.GetAll(TenantCtx.CurrentTenant.Id);
-        Reload();
+        await ApplyFilters();
     }
 
-    private void Reload()
-    {
-        ApplyFilters();
-    }
-
-    private void ApplyFilters()
+    private async Task ApplyFilters()
     {
         _filterError = null;
         if (_fromLocal.HasValue && _toLocal.HasValue && _fromLocal.Value > _toLocal.Value)
@@ -158,6 +154,8 @@ else
 
         Guid? sourceId = Guid.TryParse(_selectedSourceId, out var parsed) ? parsed : null;
         ActivityCategory? category = Enum.TryParse<ActivityCategory>(_selectedCategory, out var parsedCategory) ? parsedCategory : null;
+        var fromUtc = await BrowserDateTimeConversion.ToUtcAsync(JS, _fromLocal);
+        var toUtc = await BrowserDateTimeConversion.ToUtcAsync(JS, _toLocal);
         var filter = new ActivityEventFilter
         {
             SourceId = sourceId,
@@ -165,13 +163,13 @@ else
             UserName = _userFilter,
             DatabaseName = _databaseFilter,
             ObjectName = _objectFilter,
-            FromUtc = _fromLocal?.ToUniversalTime(),
-            ToUtc = _toLocal?.ToUniversalTime()
+            FromUtc = fromUtc,
+            ToUtc = toUtc
         };
         _events = EventService.GetRecent(1000, tenantId: TenantCtx.CurrentTenant.Id, filter: filter);
     }
 
-    private void ClearFilters()
+    private async Task ClearFilters()
     {
         _selectedSourceId = string.Empty;
         _selectedCategory = string.Empty;
@@ -180,7 +178,7 @@ else
         _objectFilter = string.Empty;
         _fromLocal = null;
         _toLocal = null;
-        ApplyFilters();
+        await ApplyFilters();
     }
 
     private static string CategoryLabel(ActivityCategory category) => category switch

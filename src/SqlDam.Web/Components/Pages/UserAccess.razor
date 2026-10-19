@@ -6,6 +6,7 @@
 @inject ActivityEventService EventService
 @inject SqlSourceService SourceService
 @inject TenantContext TenantCtx
+@inject IJSRuntime JS
 
 <PageTitle>User access | SQL DAM</PageTitle>
 
@@ -94,13 +95,13 @@ else
     private DateTime? _toLocal;
     private string? _error;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _sources = SourceService.GetAll(TenantCtx.CurrentTenant.Id);
-        Apply();
+        await Apply();
     }
 
-    private void Apply()
+    private async Task Apply()
     {
         _error = null;
         if (_fromLocal.HasValue && _toLocal.HasValue && _fromLocal > _toLocal)
@@ -109,22 +110,24 @@ else
             return;
         }
 
+        var fromUtc = await BrowserDateTimeConversion.ToUtcAsync(JS, _fromLocal);
+        var toUtc = await BrowserDateTimeConversion.ToUtcAsync(JS, _toLocal);
         _events = EventService.GetRecent(1000, tenantId: TenantCtx.CurrentTenant.Id, filter: new ActivityEventFilter
         {
             SourceId = Guid.TryParse(_sourceId, out var sourceId) ? sourceId : null,
             UserName = _user,
-            FromUtc = _fromLocal?.ToUniversalTime(),
-            ToUtc = _toLocal?.ToUniversalTime(),
+            FromUtc = fromUtc,
+            ToUtc = toUtc,
             AccessChangesOnly = true
         });
     }
 
-    private void Clear()
+    private async Task Clear()
     {
         _sourceId = string.Empty;
         _user = string.Empty;
         _fromLocal = null;
         _toLocal = null;
-        Apply();
+        await Apply();
     }
 }

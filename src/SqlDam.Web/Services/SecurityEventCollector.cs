@@ -194,6 +194,7 @@ public sealed class SecurityEventCollector : BackgroundService
             await connection.OpenAsync(stoppingToken);
 
             var allEvents = new List<ActivityEvent>();
+            var cursorsToAdvance = new List<(string Mechanism, string FileName, long Offset)>();
             var mechanismErrors = new List<string>();
             var trackedTables = trackedTableService.GetForSource(source.Id);
 
@@ -209,7 +210,7 @@ public sealed class SecurityEventCollector : BackgroundService
                 allEvents.AddRange(AgentActivityFilter.Apply(result.Events, trackedTables));
                 if (result.LastFileName is not null && result.LastFileOffset is not null)
                 {
-                    eventService.SaveCursor(source.Id, result.LastFileName, result.LastFileOffset.Value, "xe");
+                    cursorsToAdvance.Add(("xe", result.LastFileName, result.LastFileOffset.Value));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -230,7 +231,7 @@ public sealed class SecurityEventCollector : BackgroundService
                 allEvents.AddRange(AgentActivityFilter.Apply(auditResult.Events, trackedTables));
                 if (auditResult.LastFileName is not null && auditResult.LastFileOffset is not null)
                 {
-                    eventService.SaveCursor(source.Id, auditResult.LastFileName, auditResult.LastFileOffset.Value, "audit");
+                    cursorsToAdvance.Add(("audit", auditResult.LastFileName, auditResult.LastFileOffset.Value));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -239,9 +240,12 @@ public sealed class SecurityEventCollector : BackgroundService
                 mechanismErrors.Add($"SQL Server Audit: {ex.Message}");
             }
 
+            // Commit accepted events and both feed cursors together. A failure must
+            // roll back both so the next poll neither loses nor duplicates events.
+            eventService.PersistBatchAndCursors(allEvents, source.TenantId, source.Id, cursorsToAdvance);
+
             if (allEvents.Count > 0)
             {
-                eventService.InsertBatch(allEvents, source.TenantId);
                 alertService.EvaluateEventBatch(source.TenantId, source.Id, source.Name, allEvents);
             }
 

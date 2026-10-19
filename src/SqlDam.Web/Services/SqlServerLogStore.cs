@@ -86,6 +86,34 @@ public sealed class SqlServerLogStore
 
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
+        InsertBatchInTransaction(connection, transaction, events, defaultTenantId);
+        transaction.Commit();
+    }
+
+    public void PersistBatchAndCursors(
+        IReadOnlyCollection<ActivityEvent> events,
+        Guid defaultTenantId,
+        Guid sourceId,
+        IReadOnlyCollection<(string Mechanism, string FileName, long Offset)> cursors)
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        InsertBatchInTransaction(connection, transaction, events, defaultTenantId);
+        foreach (var cursor in cursors)
+        {
+            SaveCursorInTransaction(connection, transaction, sourceId, cursor);
+        }
+        transaction.Commit();
+    }
+
+    private static void InsertBatchInTransaction(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        IReadOnlyCollection<ActivityEvent> events,
+        Guid? defaultTenantId)
+    {
+        if (events.Count == 0) return;
+
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -129,6 +157,29 @@ public sealed class SqlServerLogStore
             detail.Value = evt.DetailXml;
             command.ExecuteNonQuery();
         }
+    }
+
+    private static void SaveCursorInTransaction(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        Guid sourceId,
+        (string Mechanism, string FileName, long Offset) cursor)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            MERGE dbo.SqlDamSourceCursors WITH (HOLDLOCK) AS target
+            USING (SELECT @sourceId AS source_id, @mechanism AS mechanism) AS source
+            ON target.source_id = source.source_id AND target.mechanism = source.mechanism
+            WHEN MATCHED THEN UPDATE SET last_file_name = @fileName, last_file_offset = @fileOffset
+            WHEN NOT MATCHED THEN INSERT (source_id, mechanism, last_file_name, last_file_offset)
+                 VALUES (@sourceId, @mechanism, @fileName, @fileOffset);
+            """;
+        command.Parameters.AddWithValue("@sourceId", sourceId);
+        command.Parameters.AddWithValue("@mechanism", cursor.Mechanism);
+        command.Parameters.AddWithValue("@fileName", cursor.FileName);
+        command.Parameters.AddWithValue("@fileOffset", cursor.Offset);
+        command.ExecuteNonQuery();
 
         transaction.Commit();
     }

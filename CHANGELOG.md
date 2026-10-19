@@ -8,6 +8,12 @@ All notable changes to SQL DAM are documented here. This project follows [Keep a
 
 - Publisher contact details for Vishal Pillai across the app metadata, installers, and documentation.
 
+### Fixed
+
+- Persist monitored-feed cursors only after the captured event batch is written.
+- Convert activity date filters using the browser's local time zone.
+- Explain Windows OIDC prerequisites in the MSI setup wizard.
+
 ## [1.0.0] - 2026-10-19
 
 This is the initial source repository baseline for the existing `1.0.0.0` Windows MSI package.

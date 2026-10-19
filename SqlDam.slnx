@@ -2,5 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/SqlDam.Desktop/SqlDam.Desktop.csproj" />
     <Project Path="src/SqlDam.Web/SqlDam.Web.csproj" />
+    <Project Path="src/SqlDam.Tests/SqlDam.Tests.csproj" />
   </Folder>
 </Solution>

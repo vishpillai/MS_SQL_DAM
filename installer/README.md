@@ -28,11 +28,12 @@ This folder contains the ready-to-deploy `.msi` Windows installer for **SQL DAM 
 
 ## How Clients Install and Access
 
+Download the standalone MSI from the [latest SQL DAM GitHub release](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi). The MSI bundles the service and desktop client; the generated package does not need files from this source folder. The desktop client requires the Microsoft Edge WebView2 Runtime, which is preinstalled on most supported Windows systems but is not bundled in the MSI. Install the [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if it is missing.
+
 ### Installation
-1. Transfer `SqlDam-Setup-v1.0.0.msi` to the client's Windows machine.
-2. Double-click `SqlDam-Setup-v1.0.0.msi` (or run `Install-SqlDam.bat` as Administrator).
-3. Before installing, configure the production OIDC settings for the Windows service. In the wizard, enter the organization name and identifier, then the first Super Admin's email. The organization details are stored as the initial SQL DAM tenant. The matching administrator account must exist in your identity provider; the wizard creates its SQL DAM Super Admin role assignment, not its external login or password.
-4. The installer extracts all files to `C:\Program Files\SqlDam\`:
+1. Run the downloaded `SqlDam-Setup-v1.0.0.msi` on the client's Windows machine as Administrator.
+2. In the setup wizard, enter your organization name and identifier, then the initial Super Admin's email. Configure production OIDC settings for the Windows service before launch. The account must exist in your identity provider; the wizard creates its SQL DAM role assignment, not its external login or password.
+3. The installer extracts all files to `C:\Program Files\SqlDam\`:
    - Registers and starts the background **SQL Database Activity Monitor** (`SqlDam`) Windows Service, with its data stored under `%ProgramData%\SqlDam`.
    - Installs the **SQL DAM Desktop** client.
    - Creates a **Desktop Shortcut** and a **Start Menu Shortcut** named **SQL DAM Desktop**.

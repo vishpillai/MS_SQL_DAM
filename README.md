@@ -4,6 +4,15 @@ SQL DAM's monitoring service and web dashboard run on Windows and Linux. The nat
 
 For the contribution workflow, review [CONTRIBUTING.md](CONTRIBUTING.md). Release notes are maintained in [CHANGELOG.md](CHANGELOG.md).
 
+## Download standalone installers
+
+Download the separately packaged installers from the [SQL DAM GitHub release](https://github.com/vishpillai/MS_SQL_DAM/releases/latest):
+
+- [Windows x64 installer (MSI)](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi)
+- [Linux x64 service package](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SQL-DAM-linux-x64.tar.gz)
+
+The Windows MSI installs the monitoring service and desktop client. The Linux archive installs the service; see the platform instructions below before installation.
+
 ## Database engine support
 
 Connection validation and read-only catalog browsing are available for Microsoft SQL Server, PostgreSQL, MySQL/MariaDB, and IBM Db2. This provider support lets operators test connectivity and select databases and tables; it does not mean all four engines have activity capture yet. Oracle and other engines are not currently supported.
@@ -89,17 +98,20 @@ SQL DAM provides a complete native Windows deployment package that bundles both 
 
 1. **`SqlDam.Web.exe`**: Runs as an unattended background Windows Service (`builder.Host.UseWindowsService()`) with embedded SQLite storage and activity collection.
 2. **`SqlDam.Desktop.exe`**: A native Windows desktop application with quick navigation toolbar, embedded WebView2 dashboard, live service connection monitoring, and system tray integration.
-3. **`SqlDam-Setup-v1.0.0.msi`**: Ready-to-deploy Windows Installer package located in `installer\SqlDam-Setup-v1.0.0.msi` that installs both executables and creates Start Menu and Desktop shortcuts automatically.
+3. **`SqlDam-Setup-v1.0.0.msi`**: Standalone Windows Installer package available from the [GitHub release](https://github.com/vishpillai/MS_SQL_DAM/releases/latest). It installs both executables and creates Start Menu and Desktop shortcuts automatically.
 
 ### Installation for Clients
 
-- Transfer `installer\SqlDam-Setup-v1.0.0.msi` to the client's machine.
-- Double-click `SqlDam-Setup-v1.0.0.msi` (or run `installer\Install-SqlDam.bat` as Administrator).
+- Download the [Windows x64 MSI](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi) and run it as Administrator.
 - In the setup wizard, enter your organization name and identifier, then the email of the first Super Admin. Create that account in your identity provider and configure the OIDC service settings before installing, because production startup requires OIDC.
 - The installer installs to `C:\Program Files\SqlDam\`, starts the `SqlDam` Windows Service automatically, and places a **"SQL DAM Desktop"** shortcut on the Desktop and Start Menu.
 - Operators can launch the **SQL DAM Desktop** app directly or open `http://127.0.0.1:5055/` in any browser.
 
 ## Linux Service Deployment
+
+Download the [Linux x64 service package](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SQL-DAM-linux-x64.tar.gz), extract it on the Linux host, and run `sudo bash install.sh` from the extracted package directory. See [installer-linux/README.md](installer-linux/README.md) for host prerequisites and installation details.
+
+### Build the package from source
 
 Build the standalone Linux x64 package from Windows with:
 

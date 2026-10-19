@@ -61,6 +61,9 @@ jobs:
             $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
             if ($install.ExitCode -notin @(0, 3010)) {
               Select-String -LiteralPath $installLog -Pattern 'Return value 3|Error 19[0-9][0-9]|failed to start|service.*failed' -Context 3, 5 | Select-Object -Last 40
+              Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match 'SqlDam|OIDC|Authentication' } |
+                Select-Object -First 15 TimeCreated, ProviderName, Id, Message | Format-List
               Get-Content -LiteralPath $installLog -Tail 40
               throw "MSI installation failed with exit code $($install.ExitCode)."
             }

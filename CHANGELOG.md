@@ -6,7 +6,7 @@ All notable changes to SQL DAM are documented here. This project follows [Keep a
 
 ### Added
 
-- Add upcoming user-visible changes here.
+- Publisher contact details for Vishal Pillai across the app metadata, installers, and documentation.
 
 ## [1.0.0] - 2026-10-19
 

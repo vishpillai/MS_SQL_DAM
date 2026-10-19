@@ -2,11 +2,14 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="SQL DAM - Database Activity Monitor"
-           Manufacturer="SQL DAM Security"
+           Manufacturer="Vishal Pillai"
            Version="1.0.0.0"
            UpgradeCode="4A27B08B-8A8E-47BC-B8E5-3C185A7E20E1"
            Scope="perMachine"
            Language="1033">
+
+        <Property Id="ARPCONTACT" Value="Vishal Pillai (pillaivishal91@gmail.com)" />
+        <Property Id="ARPURLINFOABOUT" Value="https://www.linkedin.com/in/vishal-pillai-dba/" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />

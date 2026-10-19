@@ -2,6 +2,8 @@
 
 This directory is separate from the Windows MSI and desktop package in `installer/`. It builds a self-contained Linux x64 service package. Linux users access the same web dashboard in a browser; the WinForms/WebView2 desktop client is Windows-only.
 
+**Publisher:** Vishal Pillai · [pillaivishal91@gmail.com](mailto:pillaivishal91@gmail.com) · [LinkedIn](https://www.linkedin.com/in/vishal-pillai-dba/)
+
 Users can download the standalone [Linux x64 service package](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SQL-DAM-linux-x64.tar.gz) from GitHub Releases. Extract it on a supported systemd-based Linux host and follow the bundled `README.md` and `install.sh` instructions below.
 
 ## Build on Windows

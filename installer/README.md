@@ -2,6 +2,8 @@
 
 This folder contains the ready-to-deploy `.msi` Windows installer for **SQL DAM (Database Activity Monitor)**, featuring both the **Windows Background Service** and the **Native Windows Desktop Application**.
 
+**Publisher:** Vishal Pillai · [pillaivishal91@gmail.com](mailto:pillaivishal91@gmail.com) · [LinkedIn](https://www.linkedin.com/in/vishal-pillai-dba/)
+
 ## File Contents
 
 - **`SqlDam-Setup-v1.0.0.msi`**: The complete, self-contained Windows Installer package (~58 MB). Bundles:

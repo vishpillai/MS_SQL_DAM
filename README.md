@@ -2,6 +2,10 @@
 
 SQL DAM's monitoring service and web dashboard run on Windows and Linux. The native desktop client and MSI installer are Windows-only; Linux deployments use the browser dashboard and the separate package in `installer-linux/`. SQL DAM provides source management, searchable event history, configurable detection rules, alert triage, an administrative audit trail, and organization-level retention settings.
 
+## Publisher
+
+Published by Vishal Pillai. Contact: [pillaivishal91@gmail.com](mailto:pillaivishal91@gmail.com) · [LinkedIn](https://www.linkedin.com/in/vishal-pillai-dba/).
+
 For the contribution workflow, review [CONTRIBUTING.md](CONTRIBUTING.md). Release notes are maintained in [CHANGELOG.md](CHANGELOG.md).
 
 ## Download standalone installers

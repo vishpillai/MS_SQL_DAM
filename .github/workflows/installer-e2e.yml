@@ -60,7 +60,8 @@ jobs:
             $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'SUPERADMINEMAIL=sqldam-ci@example.invalid', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
             $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
             if ($install.ExitCode -notin @(0, 3010)) {
-              Get-Content -LiteralPath $installLog -Tail 80
+              Select-String -LiteralPath $installLog -Pattern 'Return value 3|Error 19[0-9][0-9]|failed to start|service.*failed' -Context 3, 5 | Select-Object -Last 40
+              Get-Content -LiteralPath $installLog -Tail 40
               throw "MSI installation failed with exit code $($install.ExitCode)."
             }
 

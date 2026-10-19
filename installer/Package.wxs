@@ -67,7 +67,7 @@
                         Start="auto"
                         Account="LocalSystem"
                         ErrorControl="normal"
-                        Arguments="--Storage:DataDirectory=&quot;[SQLDAMDATADIR]&quot; --Bootstrap:OrganizationName=&quot;[ORGNAME]&quot; --Bootstrap:OrganizationIdentifier=&quot;[ORGIDENTIFIER]&quot; --Bootstrap:SuperAdminEmail=&quot;[SUPERADMINEMAIL]&quot;">
+                        Arguments="&quot;--Storage:DataDirectory=[SQLDAMDATADIR]&quot; &quot;--Bootstrap:OrganizationName=[ORGNAME]&quot; &quot;--Bootstrap:OrganizationIdentifier=[ORGIDENTIFIER]&quot; &quot;--Bootstrap:SuperAdminEmail=[SUPERADMINEMAIL]&quot;">
           <!-- Auto-restart on unexpected termination so a transient fault never
                leaves the instance unmonitored; the reset period means an
                occasional, recovered crash does not count against later ones. -->

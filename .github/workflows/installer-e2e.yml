@@ -154,6 +154,8 @@ jobs:
 
           systemctl is-active --quiet sqldam.service
           test -x /opt/sqldam/SqlDam.Web
+          sudo find /var/lib/sqldam -maxdepth 2 -type f -printf '%p %s bytes\n'
+          sudo systemctl show -p Environment --value sqldam.service | sed -E 's/(Authentication__ClientSecret=)[^ ]+/\1[REDACTED]/g'
           test -s /var/lib/sqldam/sqldam.db
           test "$(stat -c '%a' /etc/sqldam/sqldam.env)" = '600'
           test "$(stat -c '%a' /var/lib/sqldam)" = '700'

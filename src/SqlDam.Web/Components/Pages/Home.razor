@@ -1,0 +1,125 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Read)]
+@using SqlDam.Web.Services
+@inject SqlSourceService SourceService
+@inject ActivityEventService EventService
+@inject AlertService AlertSvc
+@inject TenantContext TenantCtx
+
+<PageTitle>Dashboard | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">OVERVIEW</div>
+        <h1>Database activity</h1>
+        <p class="page-description">Monitor SQL Server activity, investigate events, and respond to alerts.</p>
+    </div>
+    @if (_enabledSourceCount > 0)
+    {
+        <span class="monitoring-state"><span class="status-dot"></span> Monitoring @_enabledSourceCount source(s)</span>
+    }
+    else
+    {
+        <span class="monitoring-state"><span class="status-dot"></span> Monitoring not configured</span>
+    }
+</section>
+
+<section class="metric-grid" aria-label="Monitoring summary">
+    <article class="metric-card">
+        <div class="metric-label">SQL sources</div>
+        <div class="metric-value">@_sourceCount</div>
+        <div class="metric-note">@(_sourceCount == 0 ? "No servers connected" : $"{_enabledSourceCount} enabled")</div>
+    </article>
+    <article class="metric-card">
+        @if (_sourceCount == 0)
+        {
+            <div class="metric-label">Activity events</div>
+            <div class="metric-value metric-unavailable">--</div>
+            <div class="metric-note">Unavailable until monitoring starts</div>
+        }
+        else
+        {
+            <div class="metric-label">Activity events (24h)</div>
+            <div class="metric-value">@_eventsLast24h</div>
+            <div class="metric-note">Captured from monitored instances</div>
+        }
+    </article>
+    <article class="metric-card">
+        <div class="metric-label">Open alerts</div>
+        <div class="metric-value">@_openAlertCount</div>
+        <div class="metric-note">New, acknowledged, or under investigation</div>
+    </article>
+</section>
+
+@if (_sourceCount == 0)
+{
+    <section class="setup-card">
+        <div class="setup-icon" aria-hidden="true">+</div>
+        <div class="setup-copy">
+            <div class="eyebrow">GET STARTED</div>
+            <h2>Connect your first SQL Server</h2>
+            <p>Once a source is configured, captured activity and alert status will appear here.</p>
+        </div>
+        <a class="primary-link" href="/sources">Set up a source <span aria-hidden="true">→</span></a>
+    </section>
+}
+
+<section class="activity-card">
+    <div class="section-heading">
+        <div>
+            <h2>Recent activity</h2>
+            <p>Latest events captured from monitored SQL Server instances</p>
+        </div>
+        <a href="/activity" class="text-link">View activity <span aria-hidden="true">→</span></a>
+    </div>
+    @if (_recentEvents.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-state-mark" aria-hidden="true">≋</div>
+            <strong>No activity captured</strong>
+            <span>Add a SQL Server source to begin monitoring.</span>
+        </div>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time (local)</th>
+                    <th>Source</th>
+                    <th>Summary</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var evt in _recentEvents)
+                {
+                    <tr>
+                        <td>@evt.TimestampUtc.ToLocalTime().ToString("g")</td>
+                        <td>@evt.SourceName</td>
+                        <td>@evt.Summary</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private int _sourceCount;
+    private int _enabledSourceCount;
+    private int _eventsLast24h;
+    private int _openAlertCount;
+    private List<Models.ActivityEvent> _recentEvents = new();
+
+    protected override void OnInitialized()
+    {
+        var tenantId = TenantCtx.CurrentTenant.Id;
+        var sources = SourceService.GetAll(tenantId);
+        _sourceCount = sources.Count;
+        _enabledSourceCount = sources.Count(s => s.Enabled);
+        _eventsLast24h = EventService.CountSince(DateTime.UtcNow.AddHours(-24), tenantId);
+        _recentEvents = EventService.GetRecent(10, tenantId: tenantId);
+        _openAlertCount = AlertSvc.GetOpenAlertCount(tenantId);
+    }
+}

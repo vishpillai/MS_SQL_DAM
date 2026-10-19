@@ -1,0 +1,49 @@
+﻿@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar-backdrop @(_navOpen ? "backdrop-visible" : "")" @onclick="CloseNav" aria-hidden="true"></div>
+    <aside class="sidebar @(_navOpen ? "sidebar-open" : "")" aria-label="Sidebar navigation">
+        <NavMenu OnNavigate="CloseNav" />
+    </aside>
+
+    <main>
+        <header class="top-row">
+            <div class="top-row-left">
+                <button type="button" class="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="@(_navOpen ? "true" : "false")" @onclick="ToggleNav">
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                </button>
+                <span class="breadcrumb">SQL Server monitoring</span>
+            </div>
+            <div class="top-row-right">
+                <span class="local-badge"><span class="status-dot"></span> On-premises</span>
+                <a class="text-link" href="/logout">Sign out</a>
+            </div>
+        </header>
+
+        <article class="content">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unexpected error occurred.
+    <a href="." class="reload">Reload</a>
+    <button class="dismiss" aria-label="Dismiss">x</button>
+</div>
+
+@code {
+    private bool _navOpen = false;
+
+    private void ToggleNav()
+    {
+        _navOpen = !_navOpen;
+    }
+
+    private void CloseNav()
+    {
+        _navOpen = false;
+    }
+}

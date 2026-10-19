@@ -1,0 +1,213 @@
+@page "/activity"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Read)]
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject ActivityEventService EventService
+@inject SqlSourceService SourceService
+@inject TenantContext TenantCtx
+
+<PageTitle>Activity | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">INVESTIGATE</div>
+        <h1>Activity</h1>
+        <p class="page-description">Search and review events captured from monitored SQL Server instances.</p>
+    </div>
+</section>
+
+@if (_sources.Count == 0)
+{
+    <section class="empty-page-card">
+        <div class="empty-state-mark" aria-hidden="true">≋</div>
+        <h2>Activity history is not available yet</h2>
+        <p>Monitoring has not been configured, so there are no captured events to display.</p>
+        <a class="primary-link" href="/sources">View SQL sources <span aria-hidden="true">→</span></a>
+    </section>
+}
+else
+{
+    <section class="form-card">
+        <h2>Filter activity</h2>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="sourceFilter">Source</label>
+                <select id="sourceFilter" @bind="_selectedSourceId">
+                    <option value="">All sources</option>
+                    @foreach (var source in _sources)
+                    {
+                        <option value="@source.Id">@source.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="activityFilter">Activity</label>
+                <select id="activityFilter" @bind="_selectedCategory">
+                    <option value="">All activity</option>
+                    @foreach (var category in Enum.GetValues<ActivityCategory>())
+                    {
+                        <option value="@category">@CategoryLabel(category)</option>
+                    }
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="userFilter">User</label>
+                <InputText id="userFilter" @bind-Value="_userFilter" placeholder="Login name" />
+            </div>
+            <div class="form-field">
+                <label for="databaseFilter">Database</label>
+                <InputText id="databaseFilter" @bind-Value="_databaseFilter" placeholder="Database name" />
+            </div>
+            <div class="form-field">
+                <label for="objectFilter">Table or object</label>
+                <InputText id="objectFilter" @bind-Value="_objectFilter" placeholder="Object name" />
+            </div>
+            <div class="form-field">
+                <label for="fromFilter">From</label>
+                <InputDate id="fromFilter" Type="InputDateType.DateTimeLocal" @bind-Value="_fromLocal" />
+            </div>
+            <div class="form-field">
+                <label for="toFilter">To</label>
+                <InputDate id="toFilter" Type="InputDateType.DateTimeLocal" @bind-Value="_toLocal" />
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(_filterError))
+        {
+            <div class="form-error" role="alert">@_filterError</div>
+        }
+        <div class="form-actions">
+            <button class="btn-primary" @onclick="ApplyFilters">Apply filters</button>
+            <button class="btn-secondary" @onclick="ClearFilters">Clear</button>
+        </div>
+    </section>
+
+    @if (_events.Count == 0)
+    {
+        <section class="empty-page-card">
+            <div class="empty-state-mark" aria-hidden="true">≋</div>
+            <h2>No activity captured yet</h2>
+            <p>Sources are configured, but no events have been collected yet. This can take up to a poll interval after a source is added.</p>
+        </section>
+    }
+    else
+    {
+        <section class="data-table-card">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date/time</th>
+                        <th>Source</th>
+                        <th>Activity</th>
+                        <th>User</th>
+                        <th>Database</th>
+                        <th>Table/object</th>
+                        <th>Summary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var evt in _events)
+                    {
+                        <tr>
+                            <td>@evt.TimestampUtc.ToLocalTime().ToString("g")</td>
+                            <td>@evt.SourceName</td>
+                            <td>@CategoryPill(evt.Category)</td>
+                            <td>@(evt.LoginName ?? "—")</td>
+                            <td>@(evt.DatabaseName ?? "—")</td>
+                            <td>@(evt.ObjectName ?? "—")</td>
+                            <td>@evt.Summary</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
+}
+
+@code {
+    private List<SqlSource> _sources = new();
+    private List<ActivityEvent> _events = new();
+    private string _selectedSourceId = string.Empty;
+    private string _selectedCategory = string.Empty;
+    private string _userFilter = string.Empty;
+    private string _databaseFilter = string.Empty;
+    private string _objectFilter = string.Empty;
+    private DateTime? _fromLocal;
+    private DateTime? _toLocal;
+    private string? _filterError;
+
+    protected override void OnInitialized()
+    {
+        _sources = SourceService.GetAll(TenantCtx.CurrentTenant.Id);
+        Reload();
+    }
+
+    private void Reload()
+    {
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        _filterError = null;
+        if (_fromLocal.HasValue && _toLocal.HasValue && _fromLocal.Value > _toLocal.Value)
+        {
+            _filterError = "The start date/time must be before the end date/time.";
+            return;
+        }
+
+        Guid? sourceId = Guid.TryParse(_selectedSourceId, out var parsed) ? parsed : null;
+        ActivityCategory? category = Enum.TryParse<ActivityCategory>(_selectedCategory, out var parsedCategory) ? parsedCategory : null;
+        var filter = new ActivityEventFilter
+        {
+            SourceId = sourceId,
+            Category = category,
+            UserName = _userFilter,
+            DatabaseName = _databaseFilter,
+            ObjectName = _objectFilter,
+            FromUtc = _fromLocal?.ToUniversalTime(),
+            ToUtc = _toLocal?.ToUniversalTime()
+        };
+        _events = EventService.GetRecent(1000, tenantId: TenantCtx.CurrentTenant.Id, filter: filter);
+    }
+
+    private void ClearFilters()
+    {
+        _selectedSourceId = string.Empty;
+        _selectedCategory = string.Empty;
+        _userFilter = string.Empty;
+        _databaseFilter = string.Empty;
+        _objectFilter = string.Empty;
+        _fromLocal = null;
+        _toLocal = null;
+        ApplyFilters();
+    }
+
+    private static string CategoryLabel(ActivityCategory category) => category switch
+    {
+        ActivityCategory.LoginSuccess => "Login success",
+        ActivityCategory.LoginFailure => "Login failure",
+        ActivityCategory.SchemaChange => "DDL / schema change",
+        ActivityCategory.DataChange => "DML / data change",
+        ActivityCategory.PermissionChange => "Permission change",
+        ActivityCategory.PrincipalChange => "User or role change",
+        _ => category.ToString()
+    };
+
+    private static MarkupString CategoryPill(ActivityCategory category)
+    {
+        var (css, label) = category switch
+        {
+            ActivityCategory.LoginSuccess => ("pill-success", "Login"),
+            ActivityCategory.LoginFailure => ("pill-danger", "Login failed"),
+            ActivityCategory.Error => ("pill-danger", "Error"),
+            ActivityCategory.SchemaChange => ("pill-info", "DDL"),
+            ActivityCategory.PermissionChange => ("pill-warning", "Permission"),
+            ActivityCategory.PrincipalChange => ("pill-warning", "User / role"),
+            ActivityCategory.DataChange => ("pill-info", "DML"),
+            _ => ("pill-neutral", "Other")
+        };
+
+        return new MarkupString($"<span class=\"pill {css}\">{label}</span>");
+    }
+}

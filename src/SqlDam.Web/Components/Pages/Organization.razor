@@ -1,0 +1,271 @@
+@page "/organization"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.SuperAdmin)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject TenantContext TenantCtx
+@inject TenantService TenantSvc
+@inject EmailAlertSettingsService EmailSettingsSvc
+@inject IConfiguration Configuration
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Organization | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">INSTALLATION SETTINGS</div>
+        <h1>Organization</h1>
+        <p class="page-description">Configuration for this on-premises SQL DAM installation.</p>
+    </div>
+</section>
+
+<section class="metric-grid" aria-label="Installation details">
+    <article class="metric-card">
+        <div class="metric-label">Organization</div>
+        <div class="metric-value" style="font-size:18px;">@TenantCtx.CurrentTenant.Name</div>
+        <div class="metric-note">@TenantCtx.CurrentTenant.Identifier</div>
+    </article>
+    <article class="metric-card">
+        <div class="metric-label">Deployment</div>
+        <div class="metric-value" style="font-size:18px;">On-premises</div>
+        <div class="metric-note">Customer-managed host and data store</div>
+    </article>
+    <article class="metric-card">
+        <div class="metric-label">Identity</div>
+        <div class="metric-value" style="font-size:18px;">@(_oidcConfigured ? "OIDC enabled" : "Development only")</div>
+        <div class="metric-note">Production requires configured OIDC sign-in</div>
+    </article>
+</section>
+
+<section class="form-card">
+    <h2>Data retention</h2>
+    <p class="page-description">Set the retention target to match your institution's approved policy and applicable requirements. The default is configurable and is not a regulatory determination.</p>
+    <div class="form-grid">
+        <div class="form-field">
+            <label for="retentionDays">Retention period (days)</label>
+            <input id="retentionDays" type="number" min="30" max="3650" @bind="_retentionDays" />
+        </div>
+    </div>
+    <div class="form-actions">
+        <button class="btn-primary" @onclick="SaveRetentionAsync">Save retention target</button>
+    </div>
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <p class="page-description" role="status">@_message</p>
+    }
+</section>
+
+<section class="form-card">
+    <h2>Email alert delivery</h2>
+    <p class="page-description">Send an email when SQL DAM creates a new alert. Updates to an existing open alert do not generate repeat messages. SMTP passwords are protected with the installation's Data Protection key ring.</p>
+    @if (!string.IsNullOrEmpty(_emailError))
+    {
+        <div class="form-error" role="alert">@_emailError</div>
+    }
+    @if (!string.IsNullOrEmpty(_emailMessage))
+    {
+        <div class="form-success" role="status">@_emailMessage</div>
+    }
+    <div class="form-grid">
+        <div class="form-field span-2">
+            <label class="certificate-option-label" for="email-alerts-enabled">
+                <InputCheckbox id="email-alerts-enabled" @bind-Value="_emailSettings.Enabled" disabled="@_emailBusy" />
+                Enable SMTP alert delivery
+            </label>
+            <span class="page-description">When off, SQL DAM sends no automatic alert emails. You can still use the manual test button. Only new alerts at or above the selected severity are sent when enabled.</span>
+            <span class="pill @(_emailSettings.Enabled ? "pill-success" : "pill-neutral")">SMTP alerts @(_emailSettings.Enabled ? "enabled" : "disabled")</span>
+        </div>
+        <div class="form-field">
+            <label for="smtp-host">SMTP server</label>
+            <InputText id="smtp-host" @bind-Value="_emailSettings.SmtpHost" disabled="@_emailBusy" placeholder="smtp.company.com" />
+        </div>
+        <div class="form-field">
+            <label for="smtp-port">SMTP port</label>
+            <InputNumber id="smtp-port" @bind-Value="_emailSettings.SmtpPort" min="1" max="65535" disabled="@_emailBusy" />
+        </div>
+        <div class="form-field span-2">
+            <label class="certificate-option-label" for="smtp-starttls">
+                <InputCheckbox id="smtp-starttls" @bind-Value="_emailSettings.UseStartTls" disabled="@_emailBusy" />
+                Require STARTTLS encryption
+            </label>
+            <span class="page-description">Commonly used with port 587. Username/password authentication requires STARTTLS. Implicit TLS on port 465 is not supported. The sender address must be allowed by your SMTP relay.</span>
+        </div>
+        <div class="form-field">
+            <label for="smtp-sender">Sender email address</label>
+            <InputText id="smtp-sender" type="email" @bind-Value="_emailSettings.SenderAddress" disabled="@_emailBusy" placeholder="sqldam@company.com" />
+        </div>
+        <div class="form-field">
+            <label for="smtp-sender-name">Sender display name</label>
+            <InputText id="smtp-sender-name" @bind-Value="_emailSettings.SenderName" disabled="@_emailBusy" />
+        </div>
+        <div class="form-field span-2">
+            <label for="email-recipients">Alert recipients</label>
+            <InputTextArea id="email-recipients" @bind-Value="_emailSettings.Recipients" rows="3" disabled="@_emailBusy" placeholder="dba@company.com, security@company.com" />
+            <span class="page-description">Separate up to 20 recipient addresses with commas or semicolons.</span>
+        </div>
+        <div class="form-field">
+            <label for="smtp-username">SMTP username</label>
+            <InputText id="smtp-username" @bind-Value="_emailSettings.Username" disabled="@_emailBusy" autocomplete="username" />
+            <span class="page-description">Leave blank only if your mail administrator has authorized this host as an unauthenticated relay.</span>
+        </div>
+        <div class="form-field">
+            <label for="smtp-password">SMTP password</label>
+            <InputText id="smtp-password" type="password" @bind-Value="_smtpPassword" disabled="@_emailBusy" autocomplete="new-password"
+                       placeholder="@(_emailSettings.HasStoredPassword ? "Saved; leave blank to keep" : "Enter if SMTP authentication is required")" />
+            @if (_emailSettings.HasStoredPassword)
+            {
+                <label class="certificate-option-label" for="clear-smtp-password">
+                    <InputCheckbox id="clear-smtp-password" @bind-Value="_clearSavedPassword" disabled="@_emailBusy" />
+                    Clear saved password
+                </label>
+            }
+        </div>
+        <div class="form-field">
+            <label for="email-min-severity">Minimum alert severity</label>
+            <InputSelect id="email-min-severity" @bind-Value="_emailSettings.MinimumSeverity" disabled="@_emailBusy">
+                <option value="@AlertSeverity.Low">Low</option>
+                <option value="@AlertSeverity.Medium">Medium</option>
+                <option value="@AlertSeverity.High">High</option>
+                <option value="@AlertSeverity.Critical">Critical</option>
+            </InputSelect>
+        </div>
+    </div>
+    <div class="form-actions">
+        <button class="btn-primary" @onclick="SaveEmailSettingsAsync" disabled="@_emailBusy">Save email settings</button>
+        <button class="btn-secondary" @onclick="SendTestEmailAsync" disabled="@_emailBusy">@(_emailBusy ? "Working…" : "Send test email")</button>
+    </div>
+</section>
+
+<section class="form-card">
+    <h2>Read-only host agents</h2>
+    @if (_agentApiEnabled)
+    {
+        <p class="page-description">The HTTPS ingest API is enabled. Generate a tenant API key for host agents to send events they read from DBA-configured audit feeds. Rotating the key immediately disconnects agents using the previous key.</p>
+        <div class="form-actions">
+            <button class="btn-primary" @onclick="RotateAgentApiKeyAsync">@(_agentApiKey is null ? "Generate agent API key" : "Rotate agent API key")</button>
+        </div>
+        @if (_agentApiKey is not null)
+        {
+            <div class="form-field" style="margin-top:16px;">
+                <label for="agent-api-key">New agent API key (shown once)</label>
+                <InputText id="agent-api-key" type="text" @bind-Value="_agentApiKey" readonly="true" />
+                <span class="page-description">Copy this key to the protected configuration of each trusted host agent. It cannot be retrieved after leaving this page.</span>
+            </div>
+        }
+    }
+    else
+    {
+        <p class="page-description">The host-agent API is disabled. Enable <code>AgentApi:Enabled</code> after production OIDC authentication is configured.</p>
+    }
+</section>
+
+<section class="empty-page-card">
+    <h2>Control mapping</h2>
+    <p>SQL DAM does not claim blanket RBI compliance. Applicability, required retention, control evidence, and approval remain specific to the regulated entity and deployment.</p>
+    <a class="text-link" href="/compliance">Review the application audit trail <span aria-hidden="true">→</span></a>
+</section>
+
+@code {
+    private int _retentionDays;
+    private string? _message;
+    private bool _oidcConfigured;
+    private bool _agentApiEnabled;
+    private string? _agentApiKey;
+    private EmailAlertSettings _emailSettings = new();
+    private string _smtpPassword = string.Empty;
+    private bool _clearSavedPassword;
+    private bool _emailBusy;
+    private string? _emailError;
+    private string? _emailMessage;
+
+    protected override void OnInitialized()
+    {
+        _retentionDays = TenantCtx.CurrentTenant.DataRetentionDays;
+        _oidcConfigured = !string.IsNullOrWhiteSpace(Configuration["Authentication:Authority"]);
+        _agentApiEnabled = Configuration.GetValue<bool>("AgentApi:Enabled");
+        _emailSettings = EmailSettingsSvc.Get(TenantCtx.CurrentTenant.Id);
+    }
+
+    private async Task SaveRetentionAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        TenantSvc.UpdateRetention(TenantCtx.CurrentTenant.Id, _retentionDays, auth.User.Identity?.Name ?? "operator");
+        TenantCtx.Refresh();
+        _retentionDays = TenantCtx.CurrentTenant.DataRetentionDays;
+        _message = $"Retention target saved: {_retentionDays} days.";
+    }
+
+    private async Task RotateAgentApiKeyAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _agentApiKey = TenantSvc.RotateAgentApiKey(TenantCtx.CurrentTenant.Id, auth.User.Identity?.Name ?? "operator");
+    }
+
+    private async Task SaveEmailSettingsAsync()
+    {
+        if (_emailBusy) return;
+        _emailBusy = true;
+        _emailError = null;
+        _emailMessage = null;
+        try
+        {
+            var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            EmailSettingsSvc.Save(
+                TenantCtx.CurrentTenant.Id,
+                _emailSettings,
+                _smtpPassword,
+                _clearSavedPassword,
+                auth.User.Identity?.Name ?? "operator");
+            _emailSettings = EmailSettingsSvc.Get(TenantCtx.CurrentTenant.Id);
+            _smtpPassword = string.Empty;
+            _clearSavedPassword = false;
+            _emailMessage = "Email alert settings saved.";
+        }
+        catch (Exception ex)
+        {
+            _emailError = ex.Message;
+        }
+        finally
+        {
+            _emailBusy = false;
+        }
+    }
+
+    private async Task SendTestEmailAsync()
+    {
+        if (_emailBusy) return;
+        _emailBusy = true;
+        _emailError = null;
+        _emailMessage = null;
+        try
+        {
+            await EmailSettingsSvc.SendTestAsync(
+                TenantCtx.CurrentTenant.Id,
+                _emailSettings,
+                _smtpPassword,
+                _clearSavedPassword);
+            _emailMessage = "Test email sent to the configured recipient list.";
+        }
+        catch (Exception ex)
+        {
+            _emailError = FormatEmailFailure(ex);
+        }
+        finally
+        {
+            _emailBusy = false;
+        }
+    }
+
+    private static string FormatEmailFailure(Exception exception)
+    {
+        var details = exception.GetBaseException().Message;
+        if (details.Contains("we do not relay", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("5.7.1", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"SMTP relay denied the sender or recipient (5.7.1). Enable STARTTLS on port 587, authenticate with an SMTP account authorized to send from the selected sender address, or ask your mail administrator to authorize this relay and recipient domain. Server response: {details}";
+        }
+
+        return $"Test email failed: {details}";
+    }
+}

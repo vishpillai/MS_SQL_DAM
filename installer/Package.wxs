@@ -1,0 +1,130 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="SQL DAM - Database Activity Monitor"
+           Manufacturer="SQL DAM Security"
+           Version="1.0.0.0"
+           UpgradeCode="4A27B08B-8A8E-47BC-B8E5-3C185A7E20E1"
+           Scope="perMachine"
+           Language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- The custom InstallDir UI adds an initial Super Admin account page. -->
+    <ui:WixUI Id="SqlDamWixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <Property Id="SUPERADMINEMAIL" Secure="yes" />
+    <Property Id="ORGNAME" Secure="yes" />
+    <Property Id="ORGIDENTIFIER" Secure="yes" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SQL DAM Desktop now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+
+    <CustomAction Id="LaunchDesktopApp"
+                  FileRef="SqlDamDesktopExe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <UI>
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="LaunchDesktopApp"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SqlDam" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="SQL DAM" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Runtime-mutable data (SQLite database, Data Protection key ring, encrypted
+         SQL login secrets) lives under %ProgramData%, not Program Files, per Windows
+         guidance: Program Files is for read-only installed binaries. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="SQLDAMDATADIR" Name="SqlDam" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- Main executable and Windows Service definition -->
+      <Component Id="SqlDamExecutable" Guid="3F8F99D4-257C-4B9A-98C3-B75F3C2802CD" Bitness="always64">
+        <File Id="SqlDamExe" Source="publish\SqlDam.Web.exe" KeyPath="yes" />
+
+        <ServiceInstall Id="SqlDamServiceInstaller"
+                        Type="ownProcess"
+                        Name="SqlDam"
+                        DisplayName="SQL Database Activity Monitor"
+                        Description="Enterprise SQL Database Activity Monitor (DAM) Service with Extended Events and SQL Audit Collection"
+                        Start="auto"
+                        Account="LocalSystem"
+                        ErrorControl="normal"
+                        Arguments="--Storage:DataDirectory=&quot;[SQLDAMDATADIR]&quot; --Bootstrap:OrganizationName=&quot;[ORGNAME]&quot; --Bootstrap:OrganizationIdentifier=&quot;[ORGIDENTIFIER]&quot; --Bootstrap:SuperAdminEmail=&quot;[SUPERADMINEMAIL]&quot;">
+          <!-- Auto-restart on unexpected termination so a transient fault never
+               leaves the instance unmonitored; the reset period means an
+               occasional, recovered crash does not count against later ones. -->
+          <util:ServiceConfig FirstFailureActionType="restart"
+                               SecondFailureActionType="restart"
+                               ThirdFailureActionType="restart"
+                               RestartServiceDelayInSeconds="60"
+                               ResetPeriodInDays="1" />
+        </ServiceInstall>
+
+        <ServiceControl Id="SqlDamServiceControl"
+                        Name="SqlDam"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+
+      <!-- Desktop Application and Desktop/Start Menu Shortcuts -->
+      <Component Id="SqlDamDesktopComponent" Guid="B4E38127-1473-45AE-BF91-03AE8A4C6DE5" Bitness="always64">
+        <File Id="SqlDamDesktopExe" Source="publish\SqlDam.Desktop.exe" KeyPath="yes">
+          <Shortcut Id="DesktopAppShortcut"
+                    Directory="DesktopFolder"
+                    Name="SQL DAM Desktop"
+                    Description="SQL DAM - Database Activity Monitor Desktop Client"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Advertise="no" />
+          <Shortcut Id="StartMenuAppShortcut"
+                    Directory="ApplicationProgramsFolder"
+                    Name="SQL DAM Desktop"
+                    Description="SQL DAM - Database Activity Monitor Desktop Client"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Advertise="no" />
+        </File>
+        <RemoveFolder Id="CleanUpProgramFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      </Component>
+
+      <!-- %ProgramData%\SqlDam scaffold directory; the service creates the actual
+           database/key files at runtime. The folder itself is removed on uninstall,
+           but its contents (customer data) are deliberately left in place -
+           uninstalling the app must not silently destroy collected activity data. -->
+      <Component Id="SqlDamDataDirectory" Directory="SQLDAMDATADIR" Guid="C6E6E6C0-9C77-4C90-9B2E-6B6E6E9B8B1A" Bitness="always64">
+        <CreateFolder />
+        <RemoveFolder Id="CleanUpDataFolder" Directory="SQLDAMDATADIR" On="uninstall" />
+        <RegistryValue Root="HKLM"
+                        Key="Software\SqlDam Security\SqlDam"
+                        Name="DataDirectoryInstalled"
+                        Type="integer"
+                        Value="1"
+                        KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="MainApplication" Title="SQL DAM Service" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="PublishedFiles" />
+      <ComponentRef Id="SqlDamDataDirectory" />
+    </Feature>
+  </Package>
+</Wix>

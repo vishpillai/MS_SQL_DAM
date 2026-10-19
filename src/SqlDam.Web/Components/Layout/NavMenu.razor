@@ -1,0 +1,73 @@
+<div class="brand">
+    <div class="brand-mark">D</div>
+    <div class="brand-text">
+        <a class="brand-name" href="/" @onclick="HandleNavigate">SQL DAM</a>
+        <span class="brand-caption">Database activity monitor</span>
+    </div>
+    <button type="button" class="mobile-close-btn" @onclick="HandleNavigate" aria-label="Close navigation menu">✕</button>
+</div>
+
+<div class="nav-section-label">MONITOR</div>
+<nav class="nav flex-column" aria-label="Main navigation">
+    <NavLink class="nav-link" href="/" Match="NavLinkMatch.All" @onclick="HandleNavigate">
+        <span class="nav-icon" aria-hidden="true">◫</span> Dashboard
+    </NavLink>
+    <NavLink class="nav-link" href="/activity" @onclick="HandleNavigate">
+        <span class="nav-icon" aria-hidden="true">≋</span> Activity
+    </NavLink>
+    <NavLink class="nav-link" href="/user-access" @onclick="HandleNavigate">
+        <span class="nav-icon" aria-hidden="true">♙</span> User access
+    </NavLink>
+    <NavLink class="nav-link" href="/alerts" @onclick="HandleNavigate">
+        <span class="nav-icon" aria-hidden="true">!</span> Alerts
+    </NavLink>
+    <AuthorizeView Policy="DamAdmin">
+        <Authorized>
+            <NavLink class="nav-link" href="/sources" @onclick="HandleNavigate">
+                <span class="nav-icon" aria-hidden="true">▣</span> SQL sources
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+</nav>
+
+<div class="nav-section-label" style="margin-top: 18px;">GOVERNANCE</div>
+<nav class="nav flex-column" aria-label="Governance navigation">
+    <AuthorizeView Policy="DamAdmin">
+        <Authorized>
+            <NavLink class="nav-link" href="/rules" @onclick="HandleNavigate">
+                <span class="nav-icon" aria-hidden="true">⚙</span> Detection rules
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+    <NavLink class="nav-link" href="/compliance" @onclick="HandleNavigate">
+        <span class="nav-icon" aria-hidden="true">≡</span> Audit trail
+    </NavLink>
+    <AuthorizeView Policy="DamSuperAdmin">
+        <Authorized>
+            <NavLink class="nav-link" href="/dam-users" @onclick="HandleNavigate">
+                <span class="nav-icon" aria-hidden="true">♙</span> DAM users
+            </NavLink>
+            <NavLink class="nav-link" href="/organization" @onclick="HandleNavigate">
+                <span class="nav-icon" aria-hidden="true">▤</span> Organization
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+</nav>
+
+<div class="sidebar-footer">
+    <span class="footer-status-dot"></span>
+    <span>Local collector</span>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnNavigate { get; set; }
+
+    private async Task HandleNavigate()
+    {
+        if (OnNavigate.HasDelegate)
+        {
+            await OnNavigate.InvokeAsync();
+        }
+    }
+}

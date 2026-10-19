@@ -1,0 +1,240 @@
+@page "/alerts"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Read)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject AlertService AlertSvc
+@inject TenantContext TenantCtx
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IWebHostEnvironment Environment
+@implements IDisposable
+
+<PageTitle>Security alerts | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">INCIDENT RESPONSE</div>
+        <h1>Security alerts</h1>
+        <p class="page-description">Review detections and record investigation outcomes.</p>
+    </div>
+    <span class="monitoring-state">@_openCount open</span>
+</section>
+
+<div class="toolbar">
+    <div class="form-field" style="min-width:220px;">
+        <label for="alertStatus">Status</label>
+        <select id="alertStatus" @bind="_statusFilter" @bind:after="Reload">
+            <option value="Open">Open alerts</option>
+            <option value="All">All statuses</option>
+            <option value="New">New</option>
+            <option value="Acknowledged">Acknowledged</option>
+            <option value="InInvestigation">In investigation</option>
+            <option value="Resolved">Resolved</option>
+            <option value="FalsePositive">False positive</option>
+        </select>
+    </div>
+    <button class="btn-secondary" @onclick="Reload">Refresh</button>
+</div>
+
+@if (_alerts.Count == 0)
+{
+    <section class="empty-page-card">
+        <div class="empty-state-mark" aria-hidden="true">!</div>
+        <h2>No alerts in this view</h2>
+        <p>There are no matching detections. Missing or unsupported event sources are shown on the SQL sources page.</p>
+        <a class="text-link" href="/rules">Review detection rules <span aria-hidden="true">→</span></a>
+    </section>
+}
+else
+{
+    <section class="data-table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Alert</th>
+                    <th>Source</th>
+                    <th>Last seen</th>
+                    <th>Events</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var alert in _alerts)
+                {
+                    <tr>
+                        <td>@SeverityPill(alert.Severity)</td>
+                        <td>@StatusPill(alert.Status)</td>
+                        <td><strong>@alert.Title</strong><br /><span>@alert.Description</span></td>
+                        <td>@alert.SourceName</td>
+                        <td>@alert.LastSeenUtc.ToLocalTime().ToString("g")</td>
+                        <td>@alert.TriggerEventCount</td>
+                        <td>
+                            <AuthorizeView Policy="DamAdmin">
+                                <Authorized>
+                                    @if (alert.Status == AlertStatus.New)
+                                    {
+                                        <button class="link-button" @onclick="() => ChangeStatus(alert, AlertStatus.Acknowledged)">Acknowledge</button>
+                                    }
+                                    @if (alert.Status is AlertStatus.New or AlertStatus.Acknowledged)
+                                    {
+                                        <button class="link-button" @onclick="() => ChangeStatus(alert, AlertStatus.InInvestigation)">Investigate</button>
+                                    }
+                                    @if (alert.Status is not AlertStatus.Resolved and not AlertStatus.FalsePositive)
+                                    {
+                                        <button class="link-button" @onclick="() => BeginResolution(alert)">Resolve</button>
+                                    }
+                                </Authorized>
+                                <NotAuthorized><span>Read only</span></NotAuthorized>
+                            </AuthorizeView>
+                            @if (alert.Status is AlertStatus.Resolved or AlertStatus.FalsePositive)
+                            {
+                                <span title="@(alert.ResolutionNotes ?? "No resolution notes")">Resolution recorded</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@if (_resolvingAlert is not null)
+{
+    <div class="modal-backdrop">
+        <section class="form-card" role="dialog" aria-modal="true" aria-labelledby="resolve-heading">
+            <h2 id="resolve-heading">Resolve alert</h2>
+            <p>@_resolvingAlert.Title</p>
+            <div class="form-field">
+                <label for="resolutionStatus">Outcome</label>
+                <select id="resolutionStatus" @bind="_resolutionStatus">
+                    <option value="Resolved">Resolved</option>
+                    <option value="FalsePositive">False positive</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="resolutionNotes">Investigation notes</label>
+                <textarea id="resolutionNotes" @bind="_resolutionNotes" rows="4" required maxlength="2000"></textarea>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_resolutionError))
+            {
+                <div class="form-error">@_resolutionError</div>
+            }
+            <div class="form-actions">
+                <button class="btn-secondary" @onclick="CancelResolution">Cancel</button>
+                <button class="btn-primary" @onclick="SubmitResolution">Save resolution</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private List<SecurityAlert> _alerts = [];
+    private string _statusFilter = "Open";
+    private int _openCount;
+    private SecurityAlert? _resolvingAlert;
+    private string _resolutionStatus = nameof(AlertStatus.Resolved);
+    private string _resolutionNotes = string.Empty;
+    private string? _resolutionError;
+
+    protected override void OnInitialized()
+    {
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        Reload();
+    }
+
+    private void OnTenantChanged() => InvokeAsync(Reload);
+
+    private void Reload()
+    {
+        var tenantId = TenantCtx.CurrentTenant.Id;
+        _openCount = AlertSvc.GetOpenAlertCount(tenantId);
+        var allAlerts = AlertSvc.GetAlerts(tenantId, null, 500);
+        _alerts = _statusFilter switch
+        {
+            "Open" => allAlerts.Where(a => a.Status is AlertStatus.New or AlertStatus.Acknowledged or AlertStatus.InInvestigation).ToList(),
+            "New" => allAlerts.Where(a => a.Status == AlertStatus.New).ToList(),
+            "Acknowledged" => allAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList(),
+            "InInvestigation" => allAlerts.Where(a => a.Status == AlertStatus.InInvestigation).ToList(),
+            "Resolved" => allAlerts.Where(a => a.Status == AlertStatus.Resolved).ToList(),
+            "FalsePositive" => allAlerts.Where(a => a.Status == AlertStatus.FalsePositive).ToList(),
+            _ => allAlerts
+        };
+    }
+
+    private async Task ChangeStatus(SecurityAlert alert, AlertStatus status)
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (!CanManage(auth.User)) return;
+        AlertSvc.UpdateAlertStatus(alert.Id, status, auth.User.Identity?.Name ?? "operator", null, TenantCtx.CurrentTenant.Id);
+        Reload();
+    }
+
+    private void BeginResolution(SecurityAlert alert)
+    {
+        _resolvingAlert = alert;
+        _resolutionStatus = nameof(AlertStatus.Resolved);
+        _resolutionNotes = string.Empty;
+        _resolutionError = null;
+    }
+
+    private void CancelResolution()
+    {
+        _resolvingAlert = null;
+        _resolutionError = null;
+    }
+
+    private async Task SubmitResolution()
+    {
+        if (_resolvingAlert is null) return;
+        if (string.IsNullOrWhiteSpace(_resolutionNotes))
+        {
+            _resolutionError = "Investigation notes are required to resolve an alert.";
+            return;
+        }
+
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (!CanManage(auth.User))
+        {
+            _resolvingAlert = null;
+            return;
+        }
+        var status = Enum.Parse<AlertStatus>(_resolutionStatus);
+        AlertSvc.UpdateAlertStatus(_resolvingAlert.Id, status, auth.User.Identity?.Name ?? "operator", _resolutionNotes.Trim(), TenantCtx.CurrentTenant.Id);
+        _resolvingAlert = null;
+        Reload();
+    }
+
+    private bool CanManage(System.Security.Claims.ClaimsPrincipal user) =>
+        Environment.IsDevelopment() || user.IsInRole(DamRoles.Admin) || user.IsInRole(DamRoles.SuperAdmin);
+
+    private static MarkupString SeverityPill(AlertSeverity severity)
+    {
+        var (css, label) = severity switch
+        {
+            AlertSeverity.Critical => ("pill-danger", "Critical"),
+            AlertSeverity.High => ("pill-danger", "High"),
+            AlertSeverity.Medium => ("pill-warning", "Medium"),
+            _ => ("pill-neutral", "Low")
+        };
+        return new MarkupString($"<span class=\"pill {css}\">{label}</span>");
+    }
+
+    private static MarkupString StatusPill(AlertStatus status)
+    {
+        var (css, label) = status switch
+        {
+            AlertStatus.New => ("pill-danger", "New"),
+            AlertStatus.Acknowledged => ("pill-warning", "Acknowledged"),
+            AlertStatus.InInvestigation => ("pill-info", "Investigating"),
+            AlertStatus.Resolved => ("pill-success", "Resolved"),
+            AlertStatus.FalsePositive => ("pill-neutral", "False positive"),
+            _ => ("pill-neutral", status.ToString())
+        };
+        return new MarkupString($"<span class=\"pill {css}\">{label}</span>");
+    }
+
+    public void Dispose() => TenantCtx.OnTenantChanged -= OnTenantChanged;
+}

@@ -1,0 +1,139 @@
+@page "/compliance"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Read)]
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject AuditService AuditSvc
+@inject TenantContext TenantCtx
+@implements IDisposable
+
+<PageTitle>Audit trail | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">GOVERNANCE</div>
+        <h1>Audit trail</h1>
+        <p class="page-description">Administrative and incident-response actions for this installation.</p>
+    </div>
+    <button type="button" class="btn-secondary" @onclick="VerifyIntegrityAsync" disabled="@_isVerifying">
+        @(_isVerifying ? "Verifying…" : _verification is null ? "Verify hash chain" : "Verify again")
+    </button>
+</section>
+
+@if (_isVerifying)
+{
+    <section class="metric-card" role="status" aria-live="polite" style="margin-bottom:18px;">
+        <div class="metric-label">Integrity check</div>
+        <div class="metric-value" style="font-size:18px;">Verifying hash chain…</div>
+    </section>
+}
+else if (_verificationError is not null)
+{
+    <section class="metric-card" role="alert" style="margin-bottom:18px; border-left:4px solid #dc2626;">
+        <div class="metric-label">Integrity check failed</div>
+        <div class="metric-value" style="font-size:18px;">Unable to verify</div>
+        <div class="metric-note">@_verificationError</div>
+    </section>
+}
+
+@if (_verification is not null)
+{
+    <section class="metric-card" role="status" aria-live="polite" style="margin-bottom:18px; border-left:4px solid @(_verification.IsValid ? "#16a34a" : "#dc2626");">
+        <div class="metric-label">Integrity check</div>
+        <div class="metric-value" style="font-size:18px;">@(_verification.IsValid ? "Chain verified" : "Mismatch found")</div>
+        <div class="metric-note">@_verification.StatusMessage</div>
+        <div class="metric-note">Last checked @_verification.VerifiedAtUtc.ToLocalTime().ToString("G")</div>
+    </section>
+}
+
+<p class="page-description" role="note">
+    Hash chaining makes edits detectable when earlier hashes remain trusted. The local database is not externally anchored or immutable storage; export and protected retention controls are still required for a production evidence process.
+</p>
+
+@if (_records.Count == 0)
+{
+    <section class="empty-page-card">
+        <h2>No administrative actions recorded</h2>
+        <p>Source, rule, and alert workflow changes will appear here.</p>
+    </section>
+}
+else
+{
+    <section class="data-table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time (local)</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Details</th>
+                    <th>Record hash</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in _records)
+                {
+                    <tr>
+                        <td>@record.TimestampUtc.ToLocalTime().ToString("g")</td>
+                        <td>@record.Actor</td>
+                        <td>@record.Action</td>
+                        <td>@record.EntityType @record.EntityId</td>
+                        <td>@record.Details</td>
+                        <td><code title="@record.RecordHash">@record.RecordHash[..Math.Min(16, record.RecordHash.Length)]</code></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private List<AuditRecord> _records = [];
+    private AuditVerificationResult? _verification;
+    private string? _verificationError;
+    private bool _isVerifying;
+
+    protected override void OnInitialized()
+    {
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        Reload();
+    }
+
+    private void OnTenantChanged() => InvokeAsync(Reload);
+
+    private void Reload()
+    {
+        _records = AuditSvc.GetRecent(TenantCtx.CurrentTenant.Id, 200);
+    }
+
+    private async Task VerifyIntegrityAsync()
+    {
+        if (_isVerifying)
+        {
+            return;
+        }
+
+        var tenantId = TenantCtx.CurrentTenant.Id;
+        _isVerifying = true;
+        _verification = null;
+        _verificationError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            _verification = await Task.Run(() => AuditSvc.VerifyIntegrity(tenantId));
+        }
+        catch (Exception ex)
+        {
+            _verificationError = ex.Message;
+        }
+        finally
+        {
+            _isVerifying = false;
+            Reload();
+        }
+    }
+
+    public void Dispose() => TenantCtx.OnTenantChanged -= OnTenantChanged;
+}

@@ -1,0 +1,130 @@
+@page "/user-access"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Read)]
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject ActivityEventService EventService
+@inject SqlSourceService SourceService
+@inject TenantContext TenantCtx
+
+<PageTitle>User access | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">INVESTIGATE</div>
+        <h1>User access</h1>
+        <p class="page-description">Review successful and failed logins, account and role changes, and permission changes on monitored servers.</p>
+    </div>
+</section>
+
+<section class="form-card">
+    <h2>Filter user activity</h2>
+    <div class="form-grid">
+        <div class="form-field">
+            <label for="accessSource">Source</label>
+            <select id="accessSource" @bind="_sourceId">
+                <option value="">All sources</option>
+                @foreach (var source in _sources)
+                {
+                    <option value="@source.Id">@source.Name</option>
+                }
+            </select>
+        </div>
+        <div class="form-field">
+            <label for="accessUser">User</label>
+            <InputText id="accessUser" @bind-Value="_user" placeholder="Login or principal name" />
+        </div>
+        <div class="form-field">
+            <label for="accessFrom">From</label>
+            <InputDate id="accessFrom" Type="InputDateType.DateTimeLocal" @bind-Value="_fromLocal" />
+        </div>
+        <div class="form-field">
+            <label for="accessTo">To</label>
+            <InputDate id="accessTo" Type="InputDateType.DateTimeLocal" @bind-Value="_toLocal" />
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="form-error" role="alert">@_error</div>
+    }
+    <div class="form-actions">
+        <button class="btn-primary" @onclick="Apply">Apply filters</button>
+        <button class="btn-secondary" @onclick="Clear">Clear</button>
+    </div>
+</section>
+
+@if (_events.Count == 0)
+{
+    <section class="empty-page-card">
+        <h2>No user access events found</h2>
+        <p>Login, principal, and permission events will appear here when the selected source captures them.</p>
+    </section>
+}
+else
+{
+    <section class="data-table-card">
+        <table class="data-table">
+            <thead>
+                <tr><th>Date/time</th><th>User</th><th>Activity</th><th>Source</th><th>Database</th><th>Object</th><th>Summary</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var evt in _events)
+                {
+                    <tr>
+                        <td>@evt.TimestampUtc.ToLocalTime().ToString("g")</td>
+                        <td>@(evt.LoginName ?? "—")</td>
+                        <td>@evt.Category</td>
+                        <td>@evt.SourceName</td>
+                        <td>@(evt.DatabaseName ?? "—")</td>
+                        <td>@(evt.ObjectName ?? "—")</td>
+                        <td>@evt.Summary</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private List<SqlSource> _sources = [];
+    private List<ActivityEvent> _events = [];
+    private string _sourceId = string.Empty;
+    private string _user = string.Empty;
+    private DateTime? _fromLocal;
+    private DateTime? _toLocal;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _sources = SourceService.GetAll(TenantCtx.CurrentTenant.Id);
+        Apply();
+    }
+
+    private void Apply()
+    {
+        _error = null;
+        if (_fromLocal.HasValue && _toLocal.HasValue && _fromLocal > _toLocal)
+        {
+            _error = "The start date/time must be before the end date/time.";
+            return;
+        }
+
+        _events = EventService.GetRecent(1000, tenantId: TenantCtx.CurrentTenant.Id, filter: new ActivityEventFilter
+        {
+            SourceId = Guid.TryParse(_sourceId, out var sourceId) ? sourceId : null,
+            UserName = _user,
+            FromUtc = _fromLocal?.ToUniversalTime(),
+            ToUtc = _toLocal?.ToUniversalTime(),
+            AccessChangesOnly = true
+        });
+    }
+
+    private void Clear()
+    {
+        _sourceId = string.Empty;
+        _user = string.Empty;
+        _fromLocal = null;
+        _toLocal = null;
+        Apply();
+    }
+}

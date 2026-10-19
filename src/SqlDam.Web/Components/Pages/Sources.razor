@@ -1,0 +1,621 @@
+@page "/sources"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Admin)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Data.SqlClient
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject SqlSourceService SourceService
+@inject TenantContext TenantCtx
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>SQL sources | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">CONFIGURATION</div>
+        <h1>Database sources</h1>
+        <p class="page-description">Manage Microsoft SQL Server, PostgreSQL, MySQL/MariaDB, and IBM Db2 connections.</p>
+    </div>
+</section>
+
+<section class="form-card">
+    <h2>Add a database source</h2>
+    <p class="page-description" style="margin:-8px 0 16px;">
+        SQL DAM reads audit data that a DBA has already configured. It does not create or change audit settings on the database server.
+    </p>
+    <p class="page-description" style="margin:-8px 0 16px;">
+        Host-agent ingestion is available for normalized events. Provider-specific native audit-file readers are still being added.
+    </p>
+    <p class="page-description" style="margin:-8px 0 16px;">
+        Collection uses low-impact limits: at least 30 seconds between polls, no more than 500 rows per feed per poll, and at most one poll at a time per server.
+    </p>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="form-error" role="alert">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="form-success" role="status">@_statusMessage</div>
+    }
+
+    <EditForm Model="_newSource" OnValidSubmit="AddSourceAsync">
+        <DataAnnotationsValidator />
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="engine">Database engine</label>
+                <InputSelect id="engine" @bind-Value="_newSource.Engine" @bind-Value:after="OnEngineChanged" disabled="@_isBusy">
+                    <option value="@DatabaseEngine.SqlServer">Microsoft SQL Server</option>
+                    <option value="@DatabaseEngine.PostgreSql">PostgreSQL</option>
+                    <option value="@DatabaseEngine.MySql">MySQL / MariaDB</option>
+                    <option value="@DatabaseEngine.Db2">IBM Db2</option>
+                </InputSelect>
+            </div>
+            <div class="form-field">
+                <label for="collection-mode">Audit reader</label>
+                <InputSelect id="collection-mode" @bind-Value="_newSource.CollectionMode" @bind-Value:after="ClearFeedback" disabled="@_isBusy">
+                    <option value="@SourceCollectionMode.RemoteAgent">Read-only host agent</option>
+                    <option value="@SourceCollectionMode.InProcessCollector" disabled="@(_newSource.Engine != DatabaseEngine.SqlServer)">Read-only SQL DAM host</option>
+                </InputSelect>
+                <span class="page-description">The host agent runs beside the database host and reads its existing audit output. SQL DAM host mode is currently available only for existing SQL Server feed files.</span>
+            </div>
+            <div class="form-field">
+                <label for="name">Display name</label>
+                <InputText id="name" @bind-Value="_newSource.Name" @bind-Value:after="ClearFeedback" disabled="@_isBusy" placeholder="e.g. Core Banking - Prod" />
+            </div>
+            <div class="form-field">
+                <label for="server">@(_newSource.Engine == DatabaseEngine.SqlServer ? "Server or TCP endpoint" : "Server host")</label>
+                <InputText id="server" @bind-Value="_newSource.ServerName" @bind-Value:after="ClearFeedback" disabled="@_isBusy" placeholder="@(_newSource.Engine == DatabaseEngine.SqlServer ? "tcp:sql01.contoso.com,1433" : "db01.contoso.com")" />
+                @if (_newSource.Engine == DatabaseEngine.SqlServer)
+                {
+                    <span class="page-description">For a named instance, use its fixed TCP port to avoid relying on SQL Server Browser discovery.</span>
+                }
+            </div>
+            @if (_newSource.Engine != DatabaseEngine.SqlServer)
+            {
+                <div class="form-field">
+                    <label for="port">Port</label>
+                    <InputNumber id="port" @bind-Value="_newSource.Port" disabled="@_isBusy" />
+                </div>
+                <div class="form-field">
+                    <label for="initial-database">@(_newSource.Engine == DatabaseEngine.MySql ? "Default database (optional)" : "Database")</label>
+                    <InputText id="initial-database" @bind-Value="_newSource.InitialDatabase" @bind-Value:after="ClearFeedback" disabled="@_isBusy" placeholder="@(_newSource.Engine == DatabaseEngine.PostgreSql ? "postgres" : "Database name")" />
+                </div>
+            }
+            @if (_newSource.Engine == DatabaseEngine.Db2)
+            {
+                <div class="form-field span-2">
+                    <label for="db2-certificate">Db2 TLS CA or server certificate path (optional)</label>
+                    <InputText id="db2-certificate" @bind-Value="_newSource.TlsCertificatePath" @bind-Value:after="ClearFeedback" disabled="@_isBusy" placeholder="@Db2CertificatePlaceholder" />
+                    <span class="page-description">Path on the SQL DAM host to a PEM or DER certificate. Db2 connections always use TLS.</span>
+                </div>
+            }
+            <div class="form-field">
+                <label for="auth">Authentication</label>
+                <InputSelect id="auth" @bind-Value="_newSource.AuthMode" @bind-Value:after="ClearFeedback" disabled="@_isBusy">
+                    @if (_newSource.Engine == DatabaseEngine.SqlServer && OperatingSystem.IsWindows())
+                    {
+                        <option value="@SqlAuthMode.WindowsIntegrated">Windows integrated</option>
+                    }
+                    <option value="@SqlAuthMode.SqlLogin">@( _newSource.Engine == DatabaseEngine.SqlServer ? "SQL login" : "Username and password")</option>
+                </InputSelect>
+                @if (_newSource.Engine == DatabaseEngine.SqlServer && _newSource.AuthMode == SqlAuthMode.WindowsIntegrated)
+                {
+                    <span class="page-description">Uses the SQL DAM process identity. On remote servers, grant the host's domain computer account a SQL login.</span>
+                }
+                else if (_newSource.Engine == DatabaseEngine.SqlServer && !OperatingSystem.IsWindows())
+                {
+                    <span class="page-description">Linux deployments connect to SQL Server with a SQL login. Windows Integrated authentication is available only on Windows.</span>
+                }
+            </div>
+            <div class="form-field">
+                <label for="interval">Poll interval (seconds)</label>
+                <InputNumber id="interval" @bind-Value="_newSource.PollIntervalSeconds" min="30" max="3600" disabled="@_isBusy" />
+                <span class="page-description">Minimum 30 seconds; failed polls back off up to 5 minutes.</span>
+            </div>
+            @if (_newSource.AuthMode == SqlAuthMode.SqlLogin)
+            {
+                <div class="form-field">
+                    <label for="user">Username</label>
+                    <InputText id="user" @bind-Value="_newSource.SqlUsername" @bind-Value:after="ClearFeedback" disabled="@_isBusy" />
+                </div>
+                <div class="form-field">
+                    <label for="password">Password</label>
+                    <InputText id="password" type="password" @bind-Value="_newSource.Password" @bind-Value:after="ClearFeedback" disabled="@_isBusy" />
+                </div>
+            }
+            @if (_newSource.Engine != DatabaseEngine.Db2)
+            {
+            <div class="form-field certificate-option span-2">
+                <label class="certificate-option-label" for="trust-server-certificate">
+                    <InputCheckbox id="trust-server-certificate" @bind-Value="_newSource.TrustServerCertificate" @bind-Value:after="ClearFeedback" disabled="@_isBusy" />
+                    <span>Trust server certificate</span>
+                </label>
+                <span class="page-description">TLS remains encrypted, but certificate chain and server-name checks are skipped. Use only for a trusted private server; install a trusted certificate for production.</span>
+            </div>
+            }
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn-secondary" disabled="@_isBusy" @onclick="TestConnectionAsync">
+                @(_isBusy && !_isSaving ? "Testing connection…" : "Test connection")
+            </button>
+            <button type="submit" class="btn-primary" disabled="@_isBusy">
+                @(_isSaving ? "Validating and adding…" : "Add source")
+            </button>
+        </div>
+    </EditForm>
+</section>
+
+@if (_sources.Count == 0)
+{
+    <section class="empty-page-card">
+        <div class="empty-state-mark" aria-hidden="true">▣</div>
+        <h2>No source has been configured</h2>
+        <p>Add a database server above. Activity capture is currently available only for Microsoft SQL Server.</p>
+    </section>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(_sourceEditError))
+    {
+        <div class="form-error" role="alert">@_sourceEditError</div>
+    }
+    @if (!string.IsNullOrEmpty(_sourceEditMessage))
+    {
+        <div class="form-success" role="status">@_sourceEditMessage</div>
+    }
+    <section class="data-table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Database engine</th>
+                    <th>Server</th>
+                    <th>Reader / access</th>
+                    <th>Status</th>
+                    <th>Last polled</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var source in _sources)
+                {
+                    <tr>
+                        <td>@source.Name</td>
+                        <td>@DisplayEngine(source.Engine)</td>
+                        <td>@source.ServerName</td>
+                        <td>
+                            <div class="source-auth-cell">
+                                <span>@(source.CollectionMode == SourceCollectionMode.RemoteAgent ? "Host agent" : "SQL DAM host")</span>
+                                <span>@(source.AuthMode == SqlAuthMode.WindowsIntegrated ? "Windows" : $"Password ({source.SqlUsername})")</span>
+                                @if (source.TrustServerCertificate)
+                                {
+                                    <span class="pill pill-warning" title="TLS is encrypted, but the server certificate is not validated.">Trust certificate</span>
+                                }
+                            </div>
+                        </td>
+                        <td>
+                            @if (!source.Enabled)
+                            {
+                                <span class="pill pill-neutral">Disabled</span>
+                            }
+                            else if (source.LastError is not null)
+                            {
+                                <span class="pill pill-danger" title="@source.LastError">Error</span>
+                            }
+                            else if (source.CollectionMode == SourceCollectionMode.RemoteAgent && source.LastPolledAtUtc is null)
+                            {
+                                <span class="pill pill-warning">Waiting for host agent</span>
+                            }
+                            else if (source.CollectionMode == SourceCollectionMode.RemoteAgent)
+                            {
+                                <span class="pill pill-success">@source.LastStatus</span>
+                            }
+                            else if (source.Engine != DatabaseEngine.SqlServer)
+                            {
+                                <span class="pill pill-warning" title="Connection and table discovery work; activity capture is not implemented for this engine yet.">Connection only</span>
+                            }
+                            else if (source.LastStatus == "Endpoint verified; waiting for next poll")
+                            {
+                                <span class="pill pill-warning">Connection verified; poll pending</span>
+                            }
+                            else if (source.LastPolledAtUtc is null)
+                            {
+                                <span class="pill pill-warning">Pending first poll</span>
+                            }
+                            else
+                            {
+                                <span class="pill pill-success">@source.LastStatus</span>
+                            }
+                        </td>
+                        <td>@(source.LastPolledAtUtc?.ToLocalTime().ToString("g") ?? "—")</td>
+                        <td>
+                            <button class="link-button" @onclick="() => ToggleEnabled(source)">
+                                @(source.Enabled ? "Disable" : "Enable")
+                            </button>
+                            &nbsp;·&nbsp;
+                            <a class="link-button" href="@($"/sources/{source.Id}/tables")">Tracked tables</a>
+                            &nbsp;·&nbsp;
+                            <button class="link-button" disabled="@_isUpdatingEndpoint" @onclick="() => StartEditingEndpoint(source)">Edit endpoint</button>
+                            &nbsp;·&nbsp;
+                            <button class="link-button" @onclick="() => DeleteSource(source)">Remove</button>
+                            @if (source.CollectionMode == SourceCollectionMode.RemoteAgent)
+                            {
+                                <div class="page-description">Agent source ID: @source.Id</div>
+                            }
+                        </td>
+                    </tr>
+                    @if (_editingSourceId == source.Id)
+                    {
+                        <tr>
+                            <td colspan="7">
+                                <div class="endpoint-edit-grid">
+                                    <div class="form-field">
+                                        <label for="edited-server-@source.Id">@(source.Engine == DatabaseEngine.SqlServer ? "Server or TCP endpoint" : "Server host")</label>
+                                        <input id="edited-server-@source.Id" type="text" @bind="_editedServerName" disabled="@_isUpdatingEndpoint" placeholder="@(source.Engine == DatabaseEngine.SqlServer ? "tcp:sql01.contoso.com,1433" : "db01.contoso.com")" />
+                                        @if (source.Engine == DatabaseEngine.SqlServer)
+                                        {
+                                            <span class="page-description">Use a fixed TCP port for named instances.</span>
+                                        }
+                                    </div>
+                                    @if (source.Engine != DatabaseEngine.SqlServer)
+                                    {
+                                        <div class="form-field">
+                                            <label for="edited-port-@source.Id">Port</label>
+                                            <input id="edited-port-@source.Id" type="number" @bind="_editedPort" disabled="@_isUpdatingEndpoint" />
+                                        </div>
+                                    }
+                                    @if (source.Engine != DatabaseEngine.Db2)
+                                    {
+                                    <div class="form-field certificate-option">
+                                        <label class="certificate-option-label" for="edited-trust-certificate-@source.Id">
+                                            <input id="edited-trust-certificate-@source.Id" type="checkbox" @bind="_editedTrustServerCertificate" disabled="@_isUpdatingEndpoint" />
+                                            <span>Trust server certificate</span>
+                                        </label>
+                                        <span class="page-description">TLS remains encrypted, but certificate checks are skipped. Use only for a trusted private server.</span>
+                                    </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="form-field">
+                                            <label for="edited-db2-certificate-@source.Id">Db2 TLS CA or server certificate path</label>
+                                            <input id="edited-db2-certificate-@source.Id" type="text" @bind="_editedTlsCertificatePath" disabled="@_isUpdatingEndpoint" placeholder="@Db2CertificatePlaceholder" />
+                                            <span class="page-description">Absolute PEM or DER certificate path on the SQL DAM host.</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="form-actions">
+                                    <button type="button" class="btn-primary" disabled="@_isUpdatingEndpoint" @onclick="SaveEndpointAsync">
+                                        @(_isUpdatingEndpoint ? "Testing and saving…" : "Test and save endpoint")
+                                    </button>
+                                    <button type="button" class="btn-secondary" disabled="@_isUpdatingEndpoint" @onclick="CancelEndpointEdit">Cancel</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private sealed class SourceForm
+    {
+        public DatabaseEngine Engine { get; set; } = DatabaseEngine.SqlServer;
+        public SourceCollectionMode CollectionMode { get; set; } = SourceCollectionMode.RemoteAgent;
+        public string Name { get; set; } = string.Empty;
+        public string ServerName { get; set; } = string.Empty;
+        public int Port { get; set; } = 1433;
+        public string? InitialDatabase { get; set; }
+        public string? TlsCertificatePath { get; set; }
+        public bool TrustServerCertificate { get; set; }
+        public SqlAuthMode AuthMode { get; set; } = OperatingSystem.IsWindows()
+            ? SqlAuthMode.WindowsIntegrated
+            : SqlAuthMode.SqlLogin;
+        public string? SqlUsername { get; set; }
+        public string? Password { get; set; }
+        public int PollIntervalSeconds { get; set; } = 30;
+    }
+
+    private SourceForm _newSource = new();
+    private List<SqlSource> _sources = new();
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private string? _sourceEditError;
+    private string? _sourceEditMessage;
+    private Guid? _editingSourceId;
+    private string _editedServerName = string.Empty;
+    private int _editedPort;
+    private bool _editedTrustServerCertificate;
+    private string? _editedTlsCertificatePath;
+    private bool _isBusy;
+    private bool _isSaving;
+    private bool _isUpdatingEndpoint;
+    private static string Db2CertificatePlaceholder => OperatingSystem.IsWindows()
+        ? @"C:\certs\db2-ca.pem"
+        : "/var/lib/sqldam/certs/db2-ca.pem";
+
+    private void OnEngineChanged()
+    {
+        _newSource.Port = _newSource.Engine switch
+        {
+            DatabaseEngine.PostgreSql => 5432,
+            DatabaseEngine.MySql => 3306,
+            // Db2 sources use TLS; IBM's conventional TLS listener is 50001.
+            DatabaseEngine.Db2 => 50001,
+            _ => 1433
+        };
+        _newSource.InitialDatabase = _newSource.Engine == DatabaseEngine.PostgreSql ? "postgres" : null;
+        _newSource.TlsCertificatePath = null;
+        _newSource.AuthMode = _newSource.Engine == DatabaseEngine.SqlServer && OperatingSystem.IsWindows()
+            ? SqlAuthMode.WindowsIntegrated
+            : SqlAuthMode.SqlLogin;
+        if (_newSource.Engine != DatabaseEngine.SqlServer)
+            _newSource.CollectionMode = SourceCollectionMode.RemoteAgent;
+        ClearFeedback();
+    }
+
+    private static string DisplayEngine(DatabaseEngine engine) => engine switch
+    {
+        DatabaseEngine.SqlServer => "Microsoft SQL Server",
+        DatabaseEngine.PostgreSql => "PostgreSQL",
+        DatabaseEngine.MySql => "MySQL / MariaDB",
+        DatabaseEngine.Db2 => "IBM Db2",
+        _ => engine.ToString()
+    };
+
+    protected override void OnInitialized()
+    {
+        Reload();
+    }
+
+    private void Reload()
+    {
+        _sources = SourceService.GetAll(TenantCtx.CurrentTenant.Id);
+    }
+
+    private async Task AddSourceAsync()
+    {
+        await ValidateConnectionAsync(addSourceOnSuccess: true);
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        await ValidateConnectionAsync(addSourceOnSuccess: false);
+    }
+
+    private void ClearFeedback()
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+    }
+
+    private void StartEditingEndpoint(SqlSource source)
+    {
+        if (_isUpdatingEndpoint)
+        {
+            return;
+        }
+
+        _sourceEditError = null;
+        _sourceEditMessage = null;
+        _editingSourceId = source.Id;
+        _editedServerName = source.ServerName;
+        _editedPort = source.Port;
+        _editedTrustServerCertificate = source.TrustServerCertificate;
+        _editedTlsCertificatePath = source.TlsCertificatePath;
+    }
+
+    private void CancelEndpointEdit()
+    {
+        if (_isUpdatingEndpoint)
+        {
+            return;
+        }
+
+        _editingSourceId = null;
+        _editedServerName = string.Empty;
+        _editedTlsCertificatePath = null;
+        _sourceEditError = null;
+    }
+
+    private async Task SaveEndpointAsync()
+    {
+        if (_isUpdatingEndpoint || _editingSourceId is not Guid sourceId)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_editedServerName))
+        {
+            _sourceEditError = "A server name or TCP endpoint is required.";
+            _sourceEditMessage = null;
+            return;
+        }
+
+        _isUpdatingEndpoint = true;
+        _sourceEditError = null;
+        _sourceEditMessage = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await SourceService.UpdateServerEndpointAsync(
+                sourceId,
+                TenantCtx.CurrentTenant.Id,
+                _editedServerName,
+                authenticationState.User.Identity?.Name ?? "operator",
+                trustServerCertificate: _editedTrustServerCertificate,
+                port: _editedPort,
+                tlsCertificatePath: _editedTlsCertificatePath);
+
+            _sourceEditMessage = "Connection verified and endpoint updated. The source history and settings were preserved.";
+            _editingSourceId = null;
+            _editedServerName = string.Empty;
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            _sourceEditError = ex is SqlException
+                ? DescribeConnectionFailure(ex, DatabaseEngine.SqlServer)
+                : $"The endpoint could not be updated. Details: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _isUpdatingEndpoint = false;
+        }
+    }
+
+    private static string DescribeConnectionFailure(Exception exception, DatabaseEngine engine)
+    {
+        var details = exception.GetBaseException().Message;
+        var engineName = DisplayEngine(engine);
+
+        if (details.Contains("certificate", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("SSL Provider", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("TLS", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"TLS certificate validation failed for {engineName}. For production, install a certificate trusted by the SQL DAM host and connect using a name that matches its certificate. For a trusted private server, enable 'Trust server certificate' where supported. Details: {details}";
+        }
+
+        if ((exception is SqlException { Number: 26 or 40 or 53 }) ||
+            details.Contains("error: 26", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("error: 40", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("error: 53", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("instance-specific error", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"SQL Server could not locate that server or instance. Check the host and instance name, confirm TCP/IP is enabled, and allow its SQL port through the firewall. Named instances need SQL Server Browser on UDP 1434 unless you use a fixed TCP port such as tcp:sql01.contoso.com,1433. Details: {details}";
+        }
+
+        if (exception is SqlException { Number: -2 })
+        {
+            return $"Connection timed out after 15 seconds. Check the server name, TCP port, SQL Server TCP/IP settings, and firewall access from the SQL DAM host. Details: {details}";
+        }
+
+        if (exception is SqlException { Number: 18456 })
+        {
+            return $"SQL Server rejected the login. Check the authentication mode and credentials. For Windows Integrated authentication, SQL Server uses the SQL DAM Windows service account. Details: {details}";
+        }
+
+        if (exception is SqlException { Number: 4060 })
+        {
+            return $"SQL Server could not open the login's default database. Check that the database exists and is available, or change the login's default database. Details: {details}";
+        }
+
+        return $"Could not connect to {engineName}. Check the host, port, database name, credentials, firewall access, and TLS settings. Details: {details}";
+    }
+
+    private async Task ValidateConnectionAsync(bool addSourceOnSuccess)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        ClearFeedback();
+        var selectedEngine = _newSource.Engine;
+        if (string.IsNullOrWhiteSpace(_newSource.Name) || string.IsNullOrWhiteSpace(_newSource.ServerName))
+        {
+            _errorMessage = "A display name and server host are required.";
+            return;
+        }
+
+        if (_newSource.Engine is DatabaseEngine.PostgreSql or DatabaseEngine.Db2 && string.IsNullOrWhiteSpace(_newSource.InitialDatabase))
+        {
+            _errorMessage = $"A database name is required for {DisplayEngine(_newSource.Engine)}.";
+            return;
+        }
+
+        if (_newSource.AuthMode == SqlAuthMode.SqlLogin &&
+            (string.IsNullOrWhiteSpace(_newSource.SqlUsername) || string.IsNullOrWhiteSpace(_newSource.Password)))
+        {
+            _errorMessage = "A username and password are required for this authentication type.";
+            return;
+        }
+
+        _isBusy = true;
+        _isSaving = addSourceOnSuccess;
+        _statusMessage = $"Checking the {DisplayEngine(_newSource.Engine)} connection…";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            try
+            {
+                await SourceService.ValidateConnectionAsync(
+                    _newSource.ServerName,
+                    _newSource.AuthMode,
+                    _newSource.SqlUsername,
+                    _newSource.Password,
+                    trustServerCertificate: _newSource.TrustServerCertificate,
+                    engine: _newSource.Engine,
+                    port: _newSource.Port,
+                    initialDatabase: _newSource.InitialDatabase,
+                    tlsCertificatePath: _newSource.TlsCertificatePath);
+            }
+            catch (Exception ex)
+            {
+                _statusMessage = null;
+                _errorMessage = DescribeConnectionFailure(ex, _newSource.Engine);
+                return;
+            }
+
+            if (!addSourceOnSuccess)
+            {
+                _statusMessage = $"Connection test succeeded. {DisplayEngine(_newSource.Engine)} accepted the connection.";
+                return;
+            }
+
+            try
+            {
+                var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+                SourceService.Add(
+                    TenantCtx.CurrentTenant.Id,
+                    _newSource.Name,
+                    _newSource.ServerName,
+                    _newSource.CollectionMode,
+                    _newSource.AuthMode,
+                    _newSource.SqlUsername,
+                    _newSource.Password,
+                    _newSource.PollIntervalSeconds,
+                    authenticationState.User.Identity?.Name ?? "operator",
+                    trustServerCertificate: _newSource.TrustServerCertificate,
+                    engine: _newSource.Engine,
+                    port: _newSource.Port,
+                    initialDatabase: _newSource.InitialDatabase,
+                    tlsCertificatePath: _newSource.TlsCertificatePath);
+
+                _newSource = new SourceForm();
+                _statusMessage = $"Connection verified and {DisplayEngine(selectedEngine)} source added. Configure the selected read-only audit reader to begin collection.";
+                Reload();
+            }
+            catch (Exception ex)
+            {
+                _statusMessage = null;
+                _errorMessage = $"Connection succeeded, but the source could not be saved. Details: {ex.Message}";
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+            _isSaving = false;
+        }
+    }
+
+    private async Task ToggleEnabled(SqlSource source)
+    {
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        SourceService.SetEnabled(source.Id, !source.Enabled, authenticationState.User.Identity?.Name ?? "operator", TenantCtx.CurrentTenant.Id);
+        Reload();
+    }
+
+    private async Task DeleteSource(SqlSource source)
+    {
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        SourceService.Delete(source.Id, authenticationState.User.Identity?.Name ?? "operator", TenantCtx.CurrentTenant.Id);
+        Reload();
+    }
+}

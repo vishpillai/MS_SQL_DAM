@@ -1,0 +1,267 @@
+@page "/sources/{SourceId:guid}/tables"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Admin)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject SqlSourceService SourceService
+@inject TrackedTableService TrackedTableService
+@inject SqlSchemaBrowserService SchemaBrowser
+@inject TenantContext TenantCtx
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>Tracked tables | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">CONFIGURATION</div>
+        <h1>Tracked tables</h1>
+        <p class="page-description">
+            @if (_source is not null)
+            {
+                if (_source.Engine == DatabaseEngine.SqlServer)
+                {
+                    <text>Choose tables on <strong>@_source.Name</strong> (@_source.ServerName). SQL DAM stores these filters and reads existing SQL Server audit output; a DBA must configure that output separately. It does not create or alter server audit settings.</text>
+                }
+                else
+                {
+                    <text>Connection and table discovery are available for @_source.Engine. This engine's audit-feed reader is not implemented yet, so these selections are saved as configuration only.</text>
+                }
+            }
+        </p>
+    </div>
+</section>
+
+@if (_source is null)
+{
+    <section class="empty-page-card">
+        <h2>Source not found</h2>
+        <p><a class="text-link" href="/sources">Back to SQL sources</a></p>
+    </section>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="form-error">@_errorMessage</div>
+    }
+
+    <section class="form-card">
+        <h2>1. Choose a database</h2>
+        @if (_loadingDatabases)
+        {
+            <p class="page-description">Connecting to @_source.ServerName…</p>
+        }
+        else if (_databases.Count == 0)
+        {
+            <p class="page-description">No accessible databases were found (or the monitoring account cannot list them).</p>
+        }
+        else
+        {
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="database">Database</label>
+                    <select id="database" value="@_selectedDatabase" @onchange="OnDatabaseChangedAsync">
+                        <option value="">Select a database…</option>
+                        @foreach (var db in _databases)
+                        {
+                            <option value="@db.Name">@db.Name</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+    </section>
+
+    @if (!string.IsNullOrEmpty(_selectedDatabase))
+    {
+        <section class="form-card">
+            <h2>2. Choose tables in @_selectedDatabase</h2>
+            @if (_source.Engine != DatabaseEngine.SqlServer)
+            {
+                <p class="page-description" role="note">Table discovery works for this database. Activity capture for @_source.Engine is not available yet; these selections are configuration only.</p>
+            }
+            @if (_loadingTables)
+            {
+                <p class="page-description">Loading tables…</p>
+            }
+            else if (_tables.Count == 0)
+            {
+                <p class="page-description">No user tables were found in this database.</p>
+            }
+            else
+            {
+                <div class="data-table-card">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Schema</th>
+                                <th>Table</th>
+                                <th>Capture DDL</th>
+                                <th>Capture DML</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var table in _tables)
+                            {
+                                var key = (table.SchemaName, table.TableName);
+                                <tr>
+                                    <td>@table.SchemaName</td>
+                                    <td>@table.TableName</td>
+                                    <td>
+                                        <input type="checkbox" aria-label="Capture DDL for @table.SchemaName.@table.TableName"
+                                               checked="@CaptureEnabled(key, captureDdl: true)"
+                                               disabled="@(_source.Engine != DatabaseEngine.SqlServer)"
+                                               @onchange="e => ToggleCapture(key, captureDdl: true, (bool)(e.Value ?? false))" />
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" aria-label="Capture DML for @table.SchemaName.@table.TableName"
+                                               checked="@CaptureEnabled(key, captureDdl: false)"
+                                               disabled="@(_source.Engine != DatabaseEngine.SqlServer)"
+                                               @onchange="e => ToggleCapture(key, captureDdl: false, (bool)(e.Value ?? false))" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (_source.Engine == DatabaseEngine.SqlServer)
+                {
+                    <div class="form-actions">
+                        <button type="button" class="btn-primary" @onclick="SaveAsync" disabled="@_saving">
+                            @(_saving ? "Saving…" : "Save table tracking")
+                        </button>
+                        @if (_savedMessage is not null)
+                        {
+                            <span class="page-description">&nbsp;@_savedMessage</span>
+                        }
+                    </div>
+                }
+            }
+        </section>
+    }
+
+    <p><a class="text-link" href="/sources">Back to SQL sources</a></p>
+}
+
+@code {
+    [Parameter] public Guid SourceId { get; set; }
+
+    private SqlSource? _source;
+    private List<DatabaseSummary> _databases = new();
+    private List<TableSummary> _tables = new();
+    private Dictionary<(string SchemaName, string TableName), TrackedTableSelection> _selections = new();
+    private string _selectedDatabase = string.Empty;
+    private bool _loadingDatabases;
+    private bool _loadingTables;
+    private bool _saving;
+    private string? _errorMessage;
+    private string? _savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _source = SourceService.Get(SourceId, TenantCtx.CurrentTenant.Id);
+        if (_source is null)
+        {
+            return;
+        }
+
+        _loadingDatabases = true;
+        try
+        {
+            var connectionString = SourceService.BuildConnectionString(_source);
+            _databases = await SchemaBrowser.ListDatabasesAsync(_source.Engine, connectionString, _source.InitialDatabase, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not list databases: {ex.Message}";
+        }
+        finally
+        {
+            _loadingDatabases = false;
+        }
+    }
+
+    private async Task OnDatabaseChangedAsync(ChangeEventArgs e)
+    {
+        _selectedDatabase = e.Value?.ToString() ?? string.Empty;
+        _savedMessage = null;
+        _tables = new();
+        _selections = new();
+
+        if (string.IsNullOrEmpty(_selectedDatabase) || _source is null)
+        {
+            return;
+        }
+
+        _loadingTables = true;
+        _errorMessage = null;
+        try
+        {
+            var connectionString = SourceService.BuildConnectionString(_source, _selectedDatabase);
+            _tables = await SchemaBrowser.ListTablesAsync(_source.Engine, connectionString, CancellationToken.None);
+            _selections = TrackedTableService.GetSelections(SourceId, _selectedDatabase);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not list tables: {ex.Message}";
+        }
+        finally
+        {
+            _loadingTables = false;
+        }
+    }
+
+    private bool CaptureEnabled((string SchemaName, string TableName) key, bool captureDdl)
+    {
+        return _selections.TryGetValue(key, out var selection) && (captureDdl ? selection.CaptureDdl : selection.CaptureDml);
+    }
+
+    private void ToggleCapture((string SchemaName, string TableName) key, bool captureDdl, bool isChecked)
+    {
+        _selections.TryGetValue(key, out var current);
+        current ??= new TrackedTableSelection(key.SchemaName, key.TableName, false, false);
+        var updated = current with
+        {
+            CaptureDdl = captureDdl ? isChecked : current.CaptureDdl,
+            CaptureDml = captureDdl ? current.CaptureDml : isChecked
+        };
+
+        if (!updated.CaptureDdl && !updated.CaptureDml) _selections.Remove(key);
+        else _selections[key] = updated;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_source is null || string.IsNullOrEmpty(_selectedDatabase))
+        {
+            return;
+        }
+
+        _saving = true;
+        _savedMessage = null;
+        try
+        {
+            var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            TrackedTableService.SetTrackedTables(
+                TenantCtx.CurrentTenant.Id,
+                SourceId,
+                _selectedDatabase,
+                _selections.Values,
+                authenticationState.User.Identity?.Name ?? "operator");
+
+            var ddlCount = _selections.Values.Count(t => t.CaptureDdl);
+            var dmlCount = _selections.Values.Count(t => t.CaptureDml);
+            _savedMessage = $"Saved table filters — DDL selected for {ddlCount} table(s), DML selected for {dmlCount} table(s). Events are captured only when the configured audit feed includes them; SQL DAM does not change server audit settings.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not save: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

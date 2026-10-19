@@ -1,0 +1,184 @@
+@page "/rules"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.Admin)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject AlertRuleService RuleService
+@inject TenantContext TenantCtx
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@implements IDisposable
+
+<PageTitle>Detection rules | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">DETECTION CONFIGURATION</div>
+        <h1>Detection rules</h1>
+        <p class="page-description">Configure event thresholds for this on-premises installation.</p>
+    </div>
+</section>
+
+<section class="form-card">
+    <h2>Add a rule</h2>
+    <p class="page-description">Rules only detect event types available from the configured SQL Server sources.</p>
+    <EditForm Model="_newRule" OnValidSubmit="AddRuleAsync">
+        <DataAnnotationsValidator />
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="ruleName">Name</label>
+                <InputText id="ruleName" @bind-Value="_newRule.Name" />
+                <ValidationMessage For="() => _newRule.Name" />
+            </div>
+            <div class="form-field">
+                <label for="ruleCategory">Event category</label>
+                <InputSelect id="ruleCategory" @bind-Value="_newRule.Category">
+                    @foreach (var category in Enum.GetValues<RuleCategory>())
+                    {
+                        <option value="@category">@Format(category)</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="form-field">
+                <label for="ruleSeverity">Severity</label>
+                <InputSelect id="ruleSeverity" @bind-Value="_newRule.Severity">
+                    @foreach (var severity in Enum.GetValues<AlertSeverity>())
+                    {
+                        <option value="@severity">@severity</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="form-field">
+                <label for="ruleThreshold">Threshold count</label>
+                <InputNumber id="ruleThreshold" @bind-Value="_newRule.ThresholdCount" />
+            </div>
+            <div class="form-field">
+                <label for="ruleWindow">Window (seconds)</label>
+                <InputNumber id="ruleWindow" @bind-Value="_newRule.WindowSeconds" />
+            </div>
+            <div class="form-field">
+                <label for="ruleFilter">Account filter (optional)</label>
+                <InputText id="ruleFilter" @bind-Value="_newRule.FilterPattern" placeholder="sa,admin" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1;">
+                <label for="ruleDescription">Description</label>
+                <InputText id="ruleDescription" @bind-Value="_newRule.Description" />
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn-primary">Add rule</button>
+        </div>
+    </EditForm>
+</section>
+
+<section class="data-table-card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Severity</th>
+                <th>Threshold</th>
+                <th>State</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var rule in _rules)
+            {
+                <tr>
+                    <td><strong>@rule.Name</strong><br /><span>@rule.Description</span></td>
+                    <td>@Format(rule.Category)</td>
+                    <td>@rule.Severity</td>
+                    <td>@rule.ThresholdCount in @rule.WindowSeconds s</td>
+                    <td>@(rule.Enabled ? "Enabled" : "Disabled")</td>
+                    <td>
+                        <button class="link-button" @onclick="() => ToggleRuleAsync(rule)">@(rule.Enabled ? "Disable" : "Enable")</button>
+                        <button class="link-button" @onclick="() => DeleteRuleAsync(rule)">Remove</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+@code {
+    private sealed class RuleForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(120)]
+        public string Name { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(500)]
+        public string Description { get; set; } = string.Empty;
+
+        public RuleCategory Category { get; set; } = RuleCategory.BruteForceLogin;
+        public AlertSeverity Severity { get; set; } = AlertSeverity.Medium;
+        [System.ComponentModel.DataAnnotations.Range(1, 10000)]
+        public int ThresholdCount { get; set; } = 5;
+        [System.ComponentModel.DataAnnotations.Range(10, 86400)]
+        public int WindowSeconds { get; set; } = 60;
+        [System.ComponentModel.DataAnnotations.StringLength(256)]
+        public string? FilterPattern { get; set; }
+    }
+
+    private List<AlertRule> _rules = [];
+    private RuleForm _newRule = new();
+
+    protected override void OnInitialized()
+    {
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        Reload();
+    }
+
+    private void OnTenantChanged() => InvokeAsync(Reload);
+
+    private void Reload()
+    {
+        _rules = RuleService.GetRules(TenantCtx.CurrentTenant.Id);
+    }
+
+    private async Task AddRuleAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        RuleService.AddRule(
+            TenantCtx.CurrentTenant.Id,
+            _newRule.Name,
+            _newRule.Description,
+            _newRule.Category,
+            _newRule.Severity,
+            _newRule.ThresholdCount,
+            _newRule.WindowSeconds,
+            _newRule.FilterPattern,
+            auth.User.Identity?.Name ?? "operator");
+        _newRule = new RuleForm();
+        Reload();
+    }
+
+    private async Task ToggleRuleAsync(AlertRule rule)
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        RuleService.ToggleRule(rule.Id, !rule.Enabled, auth.User.Identity?.Name ?? "operator");
+        Reload();
+    }
+
+    private async Task DeleteRuleAsync(AlertRule rule)
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        RuleService.DeleteRule(rule.Id, auth.User.Identity?.Name ?? "operator");
+        Reload();
+    }
+
+    private static string Format(RuleCategory category) => category switch
+    {
+        RuleCategory.BruteForceLogin => "Failed login burst",
+        RuleCategory.PrivilegedAccountAccess => "Privileged login",
+        RuleCategory.SchemaTampering => "Schema change",
+        RuleCategory.PermissionTampering => "Permission or principal change",
+        RuleCategory.SevereErrorThreshold => "Severe error burst",
+        _ => category.ToString()
+    };
+
+    public void Dispose() => TenantCtx.OnTenantChanged -= OnTenantChanged;
+}

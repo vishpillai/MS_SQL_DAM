@@ -1,0 +1,222 @@
+@page "/dam-users"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = DamPolicies.SuperAdmin)]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Authorization
+@using SqlDam.Web.Models
+@using SqlDam.Web.Services
+@inject DamUserService DamUserService
+@inject TenantContext TenantCtx
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>DAM users | SQL DAM</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <div class="eyebrow">ADMINISTRATION</div>
+        <h1>DAM users</h1>
+        <p class="page-description">Create DAM user profiles and manage their application roles.</p>
+    </div>
+</section>
+
+<section class="form-card">
+    <h2>@(_editingEmail is null ? "Create a DAM user" : "Edit DAM user")</h2>
+    <p class="page-description">Users sign in through the configured identity provider. Creating a DAM user adds the local profile and permissions for that email; it does not create the identity-provider login or password. The Super Admin role grants full control.</p>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="form-error" role="alert">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="form-success" role="status">@_statusMessage</div>
+    }
+
+    <EditForm Model="_form" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="dam-user-email">Account email</label>
+                <InputText id="dam-user-email" @bind-Value="_form.Email" readonly="@(_editingEmail is not null)" placeholder="name@company.com" />
+                <ValidationMessage For="() => _form.Email" />
+            </div>
+            <div class="form-field">
+                <label for="dam-user-name">Display name</label>
+                <InputText id="dam-user-name" @bind-Value="_form.DisplayName" placeholder="Optional" />
+            </div>
+            <div class="form-field">
+                <label for="dam-user-role">DAM role</label>
+                <InputSelect id="dam-user-role" @bind-Value="_form.Role">
+                    <option value="@DamRoles.Admin">Admin</option>
+                    <option value="@DamRoles.Auditor">Read user (Auditor)</option>
+                    <option value="@DamRoles.SuperAdmin">Super Admin (full control)</option>
+                </InputSelect>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn-primary">@(_editingEmail is null ? "Create DAM user" : "Save changes")</button>
+            @if (_editingEmail is not null)
+            {
+                <button type="button" class="btn-secondary" @onclick="CancelEdit">Cancel</button>
+            }
+        </div>
+    </EditForm>
+</section>
+
+<section class="data-table-card">
+    <div class="section-heading-row">
+        <h2>DAM user accounts</h2>
+        <span class="record-count">@_users.Count account(s)</span>
+    </div>
+    @if (_users.Count == 0)
+    {
+        <div class="empty-table-state">No local DAM role assignments yet. Bootstrap the first Super Admin with an OIDC role.</div>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Display name</th>
+                    <th>Account email</th>
+                    <th>DAM role</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in _users)
+                {
+                    <tr>
+                        <td>@user.DisplayName</td>
+                        <td>@user.Email</td>
+                        <td><span class="pill @RolePill(user.Role)">@RoleLabel(user.Role)</span></td>
+                        <td>@user.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                        <td>
+                            <button type="button" class="link-button" @onclick="() => Edit(user)">Edit</button>
+                            <button type="button" class="link-button danger-link" @onclick="() => RemoveAsync(user)">Remove role</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private sealed class UserForm
+    {
+        [Required(ErrorMessage = "Enter the account email.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        public string DisplayName { get; set; } = string.Empty;
+
+        [Required]
+        public string Role { get; set; } = DamRoles.Auditor;
+    }
+
+    private UserForm _form = new();
+    private List<DamUserAssignment> _users = new();
+    private string? _editingEmail;
+    private string? _errorMessage;
+    private string? _statusMessage;
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload() => _users = DamUserService.GetAll();
+
+    private async Task SaveAsync()
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        try
+        {
+            var actor = auth.User.Identity?.Name ?? "operator";
+            if (_editingEmail is null)
+            {
+                DamUserService.CreateUser(
+                    TenantCtx.CurrentTenant.Id,
+                    _form.Email,
+                    _form.DisplayName,
+                    _form.Role,
+                    actor);
+                _statusMessage = $"Created DAM user {_form.Email.Trim()} as {RoleLabel(_form.Role)}. They can sign in after an account with the same email exists in the identity provider.";
+            }
+            else
+            {
+                DamUserService.AssignRole(
+                    TenantCtx.CurrentTenant.Id,
+                    _form.Email,
+                    _form.DisplayName,
+                    _form.Role,
+                    actor);
+                _statusMessage = $"Updated {_form.Email.Trim()} to {RoleLabel(_form.Role)}. The user may need to refresh or sign in again for the role to take effect.";
+            }
+
+            _editingEmail = null;
+            _form = new UserForm { Role = _form.Role };
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.GetBaseException().Message;
+        }
+    }
+
+    private void Edit(DamUserAssignment user)
+    {
+        _editingEmail = user.Email;
+        _form = new UserForm
+        {
+            Email = user.Email,
+            DisplayName = user.DisplayName,
+            Role = user.Role
+        };
+        _errorMessage = null;
+        _statusMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        _editingEmail = null;
+        _form = new UserForm();
+        _errorMessage = null;
+        _statusMessage = null;
+    }
+
+    private async Task RemoveAsync(DamUserAssignment user)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Remove the DAM role for {user.Email}?")) return;
+
+        _errorMessage = null;
+        _statusMessage = null;
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        try
+        {
+            DamUserService.RemoveRole(TenantCtx.CurrentTenant.Id, user.Email, auth.User.Identity?.Name ?? "operator");
+            _statusMessage = $"Removed the DAM role assignment for {user.Email}.";
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.GetBaseException().Message;
+        }
+    }
+
+    private static string RoleLabel(string role) => role switch
+    {
+        DamRoles.SuperAdmin => "Super Admin",
+        DamRoles.Admin => "Admin",
+        _ => "Read user (Auditor)"
+    };
+
+    private static string RolePill(string role) => role switch
+    {
+        DamRoles.SuperAdmin => "pill-danger",
+        DamRoles.Admin => "pill-info",
+        _ => "pill-neutral"
+    };
+}

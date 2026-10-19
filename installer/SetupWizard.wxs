@@ -1,0 +1,73 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?foreach WIXUIARCH in X86;X64;A64 ?>
+  <Fragment>
+    <UI Id="SqlDamWixUI_InstallDir_$(WIXUIARCH)">
+      <Publish Dialog="BrowseDlg" Control="OK" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="4" />
+    </UI>
+    <UIRef Id="SqlDamWixUI_InstallDir" />
+  </Fragment>
+  <?endforeach ?>
+
+  <Fragment>
+    <UI Id="file SqlDamWixUI_InstallDir">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="BootstrapAdminDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+      <Publish Dialog="BootstrapAdminDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+      <Publish Dialog="BootstrapAdminDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;" />
+      <Publish Dialog="BootstrapAdminDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="BootstrapAdminDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="3" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+      <Property Id="ARPNOMODIFY" Value="1" />
+
+      <Dialog Id="BootstrapAdminDlg" Width="370" Height="322" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Set up your SQL DAM organization" />
+        <Control Id="Description" Type="Text" X="20" Y="55" Width="330" Height="27" Text="Enter your organization details and the account for the initial SQL DAM Super Admin." />
+        <Control Id="OrganizationNameLabel" Type="Text" X="20" Y="89" Width="85" Height="15" Text="Organization:" />
+        <Control Id="OrganizationNameInput" Type="Edit" X="110" Y="86" Width="235" Height="18" Property="ORGNAME" />
+        <Control Id="OrganizationIdentifierLabel" Type="Text" X="20" Y="115" Width="85" Height="15" Text="Identifier:" />
+        <Control Id="OrganizationIdentifierInput" Type="Edit" X="110" Y="112" Width="235" Height="18" Property="ORGIDENTIFIER" />
+        <Control Id="OrganizationNote" Type="Text" X="110" Y="134" Width="235" Height="35" Text="A short unique name for this organization in SQL DAM. Use letters, numbers, or hyphens." />
+        <Control Id="EmailLabel" Type="Text" X="20" Y="178" Width="85" Height="15" Text="Admin email:" />
+        <Control Id="EmailInput" Type="Edit" X="110" Y="175" Width="235" Height="18" Property="SUPERADMINEMAIL" />
+        <Control Id="IdentityProviderNote" Type="Text" X="110" Y="197" Width="235" Height="48" Text="This email must match an account in your identity provider. SQL DAM assigns the Super Admin role; the installer does not create an identity-provider login or password." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="286" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="295" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="295" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" DisableCondition="NOT (ORGNAME &gt;&lt; &quot;&quot; AND ORGIDENTIFIER &gt;&lt; &quot;&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="295" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)" />
+      </Dialog>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

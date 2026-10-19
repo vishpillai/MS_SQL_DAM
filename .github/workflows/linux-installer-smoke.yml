@@ -49,6 +49,7 @@ jobs:
 
           tar -xzf "$RUNNER_TEMP/sqldam-linux.tar.gz" -C "$test_dir"
           app="$test_dir/SQL-DAM-linux-x64/app/SqlDam.Web"
+          chmod 0755 "$app"
           test -x "$app"
 
           ASPNETCORE_ENVIRONMENT=Development \

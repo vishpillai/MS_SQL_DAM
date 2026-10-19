@@ -33,7 +33,7 @@
       <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="BootstrapAdminDlg" Condition="LicenseAccepted = &quot;1&quot;" />
       <Publish Dialog="BootstrapAdminDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
-      <Publish Dialog="BootstrapAdminDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;" />
+      <Publish Dialog="BootstrapAdminDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="ORGNAME &gt;&lt; &quot;&quot; AND ORGIDENTIFIER &gt;&lt; &quot;&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;" />
       <Publish Dialog="BootstrapAdminDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg" />
       <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="BootstrapAdminDlg" />
       <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="3" />
@@ -63,7 +63,7 @@
         <Control Id="IdentityProviderNote" Type="Text" X="110" Y="197" Width="235" Height="48" Text="This email must match an account in your identity provider. SQL DAM assigns the Super Admin role; the installer does not create an identity-provider login or password." />
         <Control Id="BottomLine" Type="Line" X="0" Y="286" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="295" Width="56" Height="17" Text="!(loc.WixUIBack)" />
-        <Control Id="Next" Type="PushButton" X="236" Y="295" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" DisableCondition="NOT (ORGNAME &gt;&lt; &quot;&quot; AND ORGIDENTIFIER &gt;&lt; &quot;&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="295" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
         <Control Id="Cancel" Type="PushButton" X="304" Y="295" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)" />
       </Dialog>
     </UI>

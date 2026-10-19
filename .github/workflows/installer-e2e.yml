@@ -1,0 +1,160 @@
+name: Installer end-to-end tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/installer-e2e.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag whose installers should be tested
+        required: true
+        type: string
+        default: v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  windows-msi:
+    runs-on: windows-latest
+    steps:
+      - name: Download Windows MSI
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.0' }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Invalid release tag: $env:RELEASE_TAG"
+          }
+          $msi = Join-Path $env:RUNNER_TEMP 'SqlDam-Setup.msi'
+          Invoke-WebRequest -Uri "https://github.com/vishpillai/MS_SQL_DAM/releases/download/$env:RELEASE_TAG/SqlDam-Setup-v1.0.0.msi" -OutFile $msi
+          if ((Get-Item $msi).Length -lt 50MB) { throw 'Downloaded MSI is unexpectedly small.' }
+          "SQLDAM_MSI=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install, verify service, and uninstall MSI
+        shell: pwsh
+        run: |
+          $environmentPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+          $environmentNames = @('Authentication__Authority', 'Authentication__ClientId', 'Authentication__ClientSecret')
+          $previousValues = @{}
+          foreach ($name in $environmentNames) {
+            $previousValues[$name] = (Get-ItemProperty -Path $environmentPath -Name $name -ErrorAction SilentlyContinue).$name
+          }
+
+          $testValues = @{
+            Authentication__Authority = 'https://login.example.invalid'
+            Authentication__ClientId = 'sqldam-installer-test'
+            Authentication__ClientSecret = 'installer-test-only-not-a-secret'
+          }
+          foreach ($name in $environmentNames) {
+            Set-ItemProperty -Path $environmentPath -Name $name -Value $testValues[$name] -Type String
+            [Environment]::SetEnvironmentVariable($name, $testValues[$name], 'Machine')
+            [Environment]::SetEnvironmentVariable($name, $testValues[$name], 'Process')
+          }
+
+          $installLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-install.log'
+          $uninstallLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-uninstall.log'
+          try {
+            $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'SUPERADMINEMAIL=sqldam-ci@example.invalid', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
+            $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
+            if ($install.ExitCode -notin @(0, 3010)) {
+              Get-Content -LiteralPath $installLog -Tail 80
+              throw "MSI installation failed with exit code $($install.ExitCode)."
+            }
+
+            $service = Get-Service -Name SqlDam -ErrorAction Stop
+            if ($service.Status -ne 'Running') { Start-Service -Name SqlDam }
+            $health = $null
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5055/health' -TimeoutSec 3
+                break
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if ($null -eq $health -or $health.status -ne 'ok') {
+              Get-Service -Name SqlDam | Format-List *
+              Get-Content -LiteralPath $installLog -Tail 80
+              throw 'Installed Windows service did not pass its HTTP health check.'
+            }
+
+            $installDirectory = Join-Path ${env:ProgramFiles} 'SqlDam'
+            if (-not (Test-Path (Join-Path $installDirectory 'SqlDam.Desktop.exe'))) { throw 'Desktop executable was not installed.' }
+            if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'Service did not create its ProgramData database.' }
+            Write-Output "Windows install health: $($health.status); monitoring: $($health.monitoring)"
+
+            $uninstall = Start-Process -FilePath msiexec.exe -ArgumentList @('/x', $env:SQLDAM_MSI, '/qn', '/norestart', '/l*v', $uninstallLog) -Wait -PassThru
+            if ($uninstall.ExitCode -notin @(0, 3010)) {
+              Get-Content -LiteralPath $uninstallLog -Tail 80
+              throw "MSI uninstall failed with exit code $($uninstall.ExitCode)."
+            }
+            if (Get-Service -Name SqlDam -ErrorAction SilentlyContinue) { throw 'SqlDam service remained installed after MSI uninstall.' }
+            if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'MSI uninstall unexpectedly removed customer database data.' }
+            Write-Output 'MSI uninstall passed; customer database was preserved.'
+          } finally {
+            foreach ($name in $environmentNames) {
+              if ($null -eq $previousValues[$name]) {
+                Remove-ItemProperty -Path $environmentPath -Name $name -ErrorAction SilentlyContinue
+                [Environment]::SetEnvironmentVariable($name, $null, 'Machine')
+              } else {
+                Set-ItemProperty -Path $environmentPath -Name $name -Value $previousValues[$name] -Type String
+                [Environment]::SetEnvironmentVariable($name, $previousValues[$name], 'Machine')
+              }
+            }
+          }
+
+  linux-service:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux archive
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.0' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          curl --fail --location --silent --show-error \
+            "https://github.com/vishpillai/MS_SQL_DAM/releases/download/${RELEASE_TAG}/SQL-DAM-linux-x64.tar.gz" \
+            --output "$RUNNER_TEMP/SQL-DAM-linux-x64.tar.gz"
+
+      - name: Install, verify service, and clean up
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          cleanup() {
+            sudo systemctl disable --now sqldam.service >/dev/null 2>&1 || true
+            sudo rm -f /etc/systemd/system/sqldam.service
+            sudo systemctl daemon-reload || true
+            sudo rm -rf /opt/sqldam /etc/sqldam /var/lib/sqldam "$test_dir"
+            sudo userdel sqldam >/dev/null 2>&1 || true
+            sudo groupdel sqldam >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          tar -xzf "$RUNNER_TEMP/SQL-DAM-linux-x64.tar.gz" -C "$test_dir"
+          package="$test_dir/SQL-DAM-linux-x64"
+          printf '%s\n' \
+            'SQL DAM CI Organization' \
+            'sqldam-ci' \
+            'sqldam-ci@example.invalid' \
+            'https://login.example.invalid' \
+            'sqldam-installer-test' \
+            '' \
+            'installer-test-only-not-a-secret' \
+            | sudo bash "$package/install.sh"
+
+          systemctl is-active --quiet sqldam.service
+          test -x /opt/sqldam/SqlDam.Web
+          test -s /var/lib/sqldam/sqldam.db
+          test "$(stat -c '%a' /etc/sqldam/sqldam.env)" = '600'
+          test "$(stat -c '%a' /var/lib/sqldam)" = '700'
+          service_user="$(ps -o user= -p "$(systemctl show -p MainPID --value sqldam.service)" | xargs)"
+          test "$service_user" = 'sqldam'
+
+          curl --fail --silent --show-error http://127.0.0.1:5055/health | jq --exit-status '.status == "ok"'
+          echo 'Linux install passed: systemd active, health OK, data/config permissions verified, service runs as sqldam.'

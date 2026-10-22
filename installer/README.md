@@ -33,9 +33,9 @@ This folder contains the ready-to-deploy `.msi` Windows installer for **SQL DAM 
 Download the standalone MSI from the [latest SQL DAM GitHub release](https://github.com/vishpillai/MS_SQL_DAM/releases/latest/download/SqlDam-Setup-v1.0.0.msi). The MSI bundles the service and desktop client; the generated package does not need files from this source folder. The desktop client requires the Microsoft Edge WebView2 Runtime, which is preinstalled on most supported Windows systems but is not bundled in the MSI. Install the [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if it is missing.
 
 ### Installation
-1. Ensure the initial Super Admin account exists in your OIDC identity provider and have its HTTPS authority, client ID, and client secret ready.
+1. For remote access, ensure the initial Super Admin account exists in your OIDC identity provider and have its HTTPS authority, client ID, and client secret ready. Leave OIDC and admin email blank for local-only access.
 2. Run the downloaded `SqlDam-Setup-v1.0.0.msi` as Administrator.
-3. In the wizard, enter your organization, identifier, initial Super Admin email, and OIDC client settings. The installer assigns the SQL DAM role; it does not create the external login. The client secret is protected with Windows machine-scoped DPAPI by the service.
+3. In the wizard, enter your organization and identifier. For remote access, also enter the existing Super Admin email and complete OIDC client settings. The installer assigns the SQL DAM role; it does not create the external login. The client secret is protected with Windows machine-scoped DPAPI by the service.
 4. The installer extracts all files to `C:\Program Files\SqlDam\`:
    - Registers and starts the background **SQL Database Activity Monitor** (`SqlDam`) Windows Service, with its data stored under `%ProgramData%\SqlDam`.
    - Installs the **SQL DAM Desktop** client.

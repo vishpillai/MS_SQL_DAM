@@ -38,51 +38,44 @@ jobs:
         run: |
           $installLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-install.log'
           $uninstallLog = Join-Path $env:RUNNER_TEMP 'sqldam-msi-uninstall.log'
-          $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'SUPERADMINEMAIL=sqldam-ci@example.invalid', 'OIDCAUTHORITY=https://login.example.invalid', 'OIDCCLIENTID=sqldam-installer-test', 'OIDCCLIENTSECRET=installer-test-only-not-a-secret', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
-            $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
-            if ($install.ExitCode -notin @(0, 3010)) {
-              Select-String -LiteralPath $installLog -Pattern 'Return value 3|Error 19[0-9][0-9]|failed to start|service.*failed' -Context 3, 5 | Select-Object -Last 40
-              Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
-                Where-Object { $_.Message -match 'SqlDam|OIDC|Authentication' } |
-                Select-Object -First 15 TimeCreated, ProviderName, Id, Message | Format-List
-              Get-Content -LiteralPath $installLog -Tail 40
-              throw "MSI installation failed with exit code $($install.ExitCode)."
-            }
+          $arguments = @('/i', $env:SQLDAM_MSI, '/qn', '/norestart', 'ORGNAME="SQL DAM CI"', 'ORGIDENTIFIER=sqldam-ci', 'WIXUI_EXITDIALOGOPTIONALCHECKBOX=0', '/l*v', $installLog)
+          $install = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
+          if ($install.ExitCode -notin @(0, 3010)) {
+            Get-Content -LiteralPath $installLog -Tail 80
+            throw "MSI local-only installation failed with exit code $($install.ExitCode)."
+          }
 
-            $service = Get-Service -Name SqlDam -ErrorAction Stop
-            if ($service.Status -ne 'Running') { Start-Service -Name SqlDam }
-            $health = $null
-            for ($attempt = 0; $attempt -lt 60; $attempt++) {
-              try {
-                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5055/health' -TimeoutSec 3
-                break
-              } catch {
-                Start-Sleep -Seconds 1
-              }
+          $health = $null
+          for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try {
+              $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5055/health' -TimeoutSec 3
+              break
+            } catch {
+              Start-Sleep -Seconds 1
             }
-            if ($null -eq $health -or $health.status -ne 'ok') {
-              Get-Service -Name SqlDam | Format-List *
-              Get-Content -LiteralPath $installLog -Tail 80
-              throw 'Installed Windows service did not pass its HTTP health check.'
-            }
+          }
+          if ($null -eq $health -or $health.status -ne 'ok') { throw 'Local-only Windows service did not pass its HTTP health check.' }
 
-            $installDirectory = Join-Path ${env:ProgramFiles} 'SqlDam'
-            if (-not (Test-Path (Join-Path $installDirectory 'SqlDam.Desktop.exe'))) { throw 'Desktop executable was not installed.' }
-            if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'Service did not create its ProgramData database.' }
-            $organization = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam').BootstrapOrganizationName
-            if ($organization -ne 'SQL DAM CI') { throw "MSI did not preserve the organization name. Found '$organization'." }
-            $installerSettings = Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam'
-            if ([string]::IsNullOrWhiteSpace($installerSettings.AuthenticationClientSecretProtected)) { throw 'MSI client secret was not protected with DPAPI.' }
-            if ($installerSettings.PSObject.Properties.Name -contains 'AuthenticationClientSecret') { throw 'Plaintext MSI client secret remained in the registry.' }
-            Write-Output "Windows install health: $($health.status); monitoring: $($health.monitoring)"
+          $installDirectory = Join-Path ${env:ProgramFiles} 'SqlDam'
+          if (-not (Test-Path (Join-Path $installDirectory 'SqlDam.Desktop.exe'))) { throw 'Desktop executable was not installed.' }
+          if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'Service did not create its ProgramData database.' }
+          $organization = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam').BootstrapOrganizationName
+          if ($organization -ne 'SQL DAM CI') { throw "MSI did not preserve the organization name. Found '$organization'." }
+          $installerSettings = Get-ItemProperty -Path 'HKLM:\SOFTWARE\SqlDam Security\SqlDam'
+          foreach ($name in @('AuthenticationAuthority', 'AuthenticationClientId', 'AuthenticationClientSecret', 'AuthenticationClientSecretProtected')) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$installerSettings.$name)) { throw "Local-only install unexpectedly stored $name." }
+          }
+          $listeners = @(Get-NetTCPConnection -LocalPort 5055 -State Listen -ErrorAction Stop | Select-Object -ExpandProperty LocalAddress -Unique)
+          if ($listeners.Count -ne 1 -or $listeners[0] -notin @('127.0.0.1', '::1')) { throw "Local-only service listened on an unexpected address: $($listeners -join ', ')" }
+          Write-Output "Windows local-only health passed: $($health.status)"
 
-            $uninstall = Start-Process -FilePath msiexec.exe -ArgumentList @('/x', $env:SQLDAM_MSI, '/qn', '/norestart', '/l*v', $uninstallLog) -Wait -PassThru
-            if ($uninstall.ExitCode -notin @(0, 3010)) {
-              Get-Content -LiteralPath $uninstallLog -Tail 80
-              throw "MSI uninstall failed with exit code $($uninstall.ExitCode)."
-            }
-            if (Get-Service -Name SqlDam -ErrorAction SilentlyContinue) { throw 'SqlDam service remained installed after MSI uninstall.' }
-            if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'MSI uninstall unexpectedly removed customer database data.' }
+          $uninstall = Start-Process -FilePath msiexec.exe -ArgumentList @('/x', $env:SQLDAM_MSI, '/qn', '/norestart', '/l*v', $uninstallLog) -Wait -PassThru
+          if ($uninstall.ExitCode -notin @(0, 3010)) {
+            Get-Content -LiteralPath $uninstallLog -Tail 80
+            throw "MSI uninstall failed with exit code $($uninstall.ExitCode)."
+          }
+          if (Get-Service -Name SqlDam -ErrorAction SilentlyContinue) { throw 'SqlDam service remained installed after MSI uninstall.' }
+          if (-not (Test-Path (Join-Path $env:ProgramData 'SqlDam\sqldam.db'))) { throw 'MSI uninstall unexpectedly removed customer database data.' }
           Write-Output 'MSI uninstall passed; customer database was preserved.'
 
   linux-service:
@@ -120,11 +113,11 @@ jobs:
           printf '%s\n' \
             'SQL DAM CI Organization' \
             'sqldam-ci' \
-            'sqldam-ci@example.invalid' \
-            'https://login.example.invalid' \
-            'sqldam-installer-test' \
             '' \
-            'installer-test-only-not-a-secret' \
+            '' \
+            '' \
+            '' \
+            '' \
             | sudo bash "$package/install.sh"
 
           systemctl is-active --quiet sqldam.service
@@ -134,6 +127,12 @@ jobs:
           sudo test -s /var/lib/sqldam/sqldam.db
           test "$(sudo stat -c '%a' /etc/sqldam/sqldam.env)" = '600'
           test "$(sudo stat -c '%a' /var/lib/sqldam)" = '700'
+          if sudo grep --quiet '^Authentication__' /etc/sqldam/sqldam.env; then
+            echo 'Local-only install unexpectedly wrote OIDC settings.' >&2
+            exit 1
+          fi
+          listeners="$(ss -H -ltn 'sport = :5055' | awk '{print $4}')"
+          test "$listeners" = '127.0.0.1:5055'
           service_user="$(ps -o user= -p "$(systemctl show -p MainPID --value sqldam.service)" | xargs)"
           test "$service_user" = 'sqldam'
 

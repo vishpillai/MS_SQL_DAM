@@ -31,7 +31,7 @@ escape_env_value() {
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then
     echo "SQL DAM first-run setup"
-    echo "The initial Super Admin must already exist in your OIDC identity provider."
+    echo "OIDC is optional. Leave authority, client ID, and client secret blank for loopback-only access."
 
     read -r -p "Organization name: " organization_name
     read -r -p "Organization identifier: " organization_identifier
@@ -46,12 +46,24 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
         echo "Organization name and identifier are required." >&2
         exit 1
     fi
-    if [[ ! "${super_admin_email}" == *@*.* ]]; then
-        echo "Enter a valid initial Super Admin email address." >&2
-        exit 1
-    fi
-    if [[ "${oidc_authority}" != https://* || -z "${oidc_client_id}" || -z "${oidc_client_secret}" ]]; then
-        echo "A HTTPS OIDC authority, client ID, and client secret are required for production." >&2
+    oidc_configured=false
+    if [[ -z "${oidc_authority}" && -z "${oidc_client_id}" && -z "${oidc_client_secret}" ]]; then
+        if [[ -n "${allowed_host}" ]]; then
+            echo "Remote host access requires OIDC. Leave the allowed host blank for local-only access." >&2
+            exit 1
+        fi
+    elif [[ -n "${oidc_authority}" && -n "${oidc_client_id}" && -n "${oidc_client_secret}" ]]; then
+        if [[ "${oidc_authority}" != https://* ]]; then
+            echo "The OIDC authority must use HTTPS." >&2
+            exit 1
+        fi
+        if [[ ! "${super_admin_email}" == *@*.* ]]; then
+            echo "Enter a valid initial Super Admin email address for OIDC sign-in." >&2
+            exit 1
+        fi
+        oidc_configured=true
+    else
+        echo "Configure all three OIDC values, or leave all three blank for local-only access." >&2
         exit 1
     fi
     if [[ -n "${allowed_host}" && ! "${allowed_host}" =~ ^[A-Za-z0-9.-]+$ ]]; then
@@ -59,7 +71,7 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
         exit 1
     fi
     allowed_hosts="localhost;127.0.0.1"
-    if [[ -n "${allowed_host}" ]]; then
+    if [[ "${oidc_configured}" == true && -n "${allowed_host}" ]]; then
         allowed_hosts="${allowed_hosts};${allowed_host}"
     fi
 
@@ -69,9 +81,11 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
         printf 'ASPNETCORE_URLS="http://127.0.0.1:5055"\n'
         printf 'AllowedHosts=%s\n' "$(escape_env_value "${allowed_hosts}")"
         printf 'Storage__DataDirectory="%s"\n' "${DATA_DIR}"
-        printf 'Authentication__Authority=%s\n' "$(escape_env_value "${oidc_authority}")"
-        printf 'Authentication__ClientId=%s\n' "$(escape_env_value "${oidc_client_id}")"
-        printf 'Authentication__ClientSecret=%s\n' "$(escape_env_value "${oidc_client_secret}")"
+        if [[ "${oidc_configured}" == true ]]; then
+            printf 'Authentication__Authority=%s\n' "$(escape_env_value "${oidc_authority}")"
+            printf 'Authentication__ClientId=%s\n' "$(escape_env_value "${oidc_client_id}")"
+            printf 'Authentication__ClientSecret=%s\n' "$(escape_env_value "${oidc_client_secret}")"
+        fi
         printf 'Bootstrap__OrganizationName=%s\n' "$(escape_env_value "${organization_name}")"
         printf 'Bootstrap__OrganizationIdentifier=%s\n' "$(escape_env_value "${organization_identifier}")"
         printf 'Bootstrap__SuperAdminEmail=%s\n' "$(escape_env_value "${super_admin_email}")"

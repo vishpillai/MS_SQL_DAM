@@ -33,7 +33,7 @@
       <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="BootstrapAdminDlg" Condition="LicenseAccepted = &quot;1&quot;" />
       <Publish Dialog="BootstrapAdminDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
-      <Publish Dialog="BootstrapAdminDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="ORGNAME &gt;&lt; &quot;&quot; AND ORGIDENTIFIER &gt;&lt; &quot;&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot; AND OIDCAUTHORITY &gt;&lt; &quot;https://&quot; AND OIDCCLIENTID &gt;&lt; &quot;&quot; AND OIDCCLIENTSECRET &gt;&lt; &quot;&quot;" />
+      <Publish Dialog="BootstrapAdminDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="ORGNAME &gt;&lt; &quot;&quot; AND ORGIDENTIFIER &gt;&lt; &quot;&quot; AND ((OIDCAUTHORITY = &quot;&quot; AND OIDCCLIENTID = &quot;&quot; AND OIDCCLIENTSECRET = &quot;&quot;) OR (OIDCAUTHORITY &gt;&lt; &quot;https://&quot; AND OIDCCLIENTID &gt;&lt; &quot;&quot; AND OIDCCLIENTSECRET &gt;&lt; &quot;&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;@&quot; AND SUPERADMINEMAIL &gt;&lt; &quot;.&quot;))" />
       <Publish Dialog="BootstrapAdminDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg" />
       <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="BootstrapAdminDlg" />
       <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="3" />
@@ -52,22 +52,22 @@
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Text="WixUI_Bmp_Banner" />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Set up your SQL DAM organization" />
-        <Control Id="Description" Type="Text" X="20" Y="55" Width="330" Height="27" Text="Enter organization, initial Super Admin, and production OIDC sign-in details." />
+        <Control Id="Description" Type="Text" X="20" Y="55" Width="330" Height="27" Text="Enter organization and initial admin. OIDC fields are optional for local-only access." />
         <Control Id="OrganizationNameLabel" Type="Text" X="20" Y="89" Width="85" Height="15" Text="Organization:" />
         <Control Id="OrganizationNameInput" Type="Edit" X="110" Y="86" Width="235" Height="18" Property="ORGNAME" />
         <Control Id="OrganizationIdentifierLabel" Type="Text" X="20" Y="115" Width="85" Height="15" Text="Identifier:" />
         <Control Id="OrganizationIdentifierInput" Type="Edit" X="110" Y="112" Width="235" Height="18" Property="ORGIDENTIFIER" />
         <Control Id="OrganizationNote" Type="Text" X="110" Y="134" Width="235" Height="35" Text="A short unique name for this organization in SQL DAM. Use letters, numbers, or hyphens." />
-        <Control Id="EmailLabel" Type="Text" X="20" Y="178" Width="85" Height="15" Text="Admin email:" />
+        <Control Id="EmailLabel" Type="Text" X="20" Y="178" Width="85" Height="15" Text="Admin email (OIDC):" />
         <Control Id="EmailInput" Type="Edit" X="110" Y="175" Width="235" Height="18" Property="SUPERADMINEMAIL" />
-        <Control Id="IdentityProviderNote" Type="Text" X="110" Y="197" Width="235" Height="48" Text="This email must match an account in your identity provider. SQL DAM assigns the Super Admin role; the installer does not create an identity-provider login or password." />
+        <Control Id="IdentityProviderNote" Type="Text" X="110" Y="197" Width="235" Height="48" Text="With OIDC, this must match an existing identity-provider account. Leave blank for local-only access." />
         <Control Id="OidcAuthorityLabel" Type="Text" X="20" Y="253" Width="85" Height="15" Text="OIDC authority:" />
         <Control Id="OidcAuthorityInput" Type="Edit" X="110" Y="250" Width="235" Height="18" Property="OIDCAUTHORITY" />
         <Control Id="OidcClientIdLabel" Type="Text" X="20" Y="280" Width="85" Height="15" Text="Client ID:" />
         <Control Id="OidcClientIdInput" Type="Edit" X="110" Y="277" Width="235" Height="18" Property="OIDCCLIENTID" />
         <Control Id="OidcClientSecretLabel" Type="Text" X="20" Y="307" Width="85" Height="15" Text="Client secret:" />
         <Control Id="OidcClientSecretInput" Type="Edit" X="110" Y="304" Width="235" Height="18" Property="OIDCCLIENTSECRET" Password="yes" />
-        <Control Id="OidcPrerequisiteNote" Type="Text" X="110" Y="329" Width="235" Height="47" Text="Use your HTTPS identity-provider authority. The client secret is protected with Windows machine encryption after installation. Your initial admin account must already exist at the identity provider." />
+        <Control Id="OidcPrerequisiteNote" Type="Text" X="110" Y="329" Width="235" Height="47" Text="Leave all three OIDC fields blank for local-only loopback access. Remote access requires all three; the client secret is protected with Windows machine encryption." />
         <Control Id="BottomLine" Type="Line" X="0" Y="382" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="391" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="391" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />

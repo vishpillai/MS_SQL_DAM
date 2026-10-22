@@ -66,7 +66,7 @@ Development mode keeps the local dashboard open for development. Two-step verifi
 
 ## Operations and security
 
-Production startup requires OIDC configuration through a protected secret provider:
+OIDC is optional for **local-only** installations. When all three OIDC values are blank, SQL DAM serves only loopback clients without sign-in; do not expose that mode through a reverse proxy or network interface. Remote browser access and the host-agent API require the complete OIDC configuration below through a protected secret provider:
 
 - `Authentication__Authority`
 - `Authentication__ClientId`
@@ -74,7 +74,7 @@ Production startup requires OIDC configuration through a protected secret provid
 - `Authentication__RoleClaimType` (optional; defaults to `roles`)
 - `AllowedHosts` (set to approved DNS host names)
 
-The OIDC client needs `/signin-oidc` and `/signout-callback-oidc` callbacks. Terminate TLS at a trusted reverse proxy, forward `X-Forwarded-Proto`, and expose the application only over HTTPS. Development is intentionally unauthenticated and loopback-only when OIDC is absent.
+For remote access, the OIDC client needs `/signin-oidc` and `/signout-callback-oidc` callbacks. Terminate TLS at a trusted reverse proxy, forward `X-Forwarded-Proto`, and expose the application only over HTTPS. Development mode is also unauthenticated and loopback-only when OIDC is absent.
 
 Connections to monitored databases use encrypted transport and certificate validation where the selected provider supports it. Install trusted certificates on the SQL DAM host and use server names that match the certificates. Db2 TLS can use an explicit PEM or DER CA/server certificate path.
 
@@ -123,7 +123,7 @@ Build the standalone Linux x64 package from Windows with:
 powershell -ExecutionPolicy Bypass -File .\installer-linux\Build-Linux.ps1
 ```
 
-The package is written to `installer-linux\dist\SQL-DAM-linux-x64.tar.gz`. Copy it to a systemd-based Linux host, extract it, and run `sudo bash install.sh`. First-run setup asks for the organization, initial Super Admin, and production OIDC client settings. The service runs as the unprivileged `sqldam` account, binds to loopback on port 5055, and keeps its database and Data Protection key ring in `/var/lib/sqldam`. Put it behind an HTTPS reverse proxy for remote browser access. The environment file is root-readable only; keep backups of it, the SQLite database, and the protected key ring. Restrict the data directory to the service account and protect its disk with the host's approved at-rest encryption.
+The package is written to `installer-linux\dist\SQL-DAM-linux-x64.tar.gz`. Copy it to a systemd-based Linux host, extract it, and run `sudo bash install.sh`. First-run setup asks for the organization and optionally OIDC client settings. Leave all three OIDC values and the admin email blank for loopback-only access; configure all three for remote access. The service runs as the unprivileged `sqldam` account, binds to loopback on port 5055, and keeps its database and Data Protection key ring in `/var/lib/sqldam`. Put it behind an HTTPS reverse proxy only when OIDC is configured. The environment file is root-readable only; keep backups of it, the SQLite database, and the protected key ring. Restrict the data directory to the service account and protect its disk with the host's approved at-rest encryption.
 
 The Windows and Linux packages are built separately: Windows files remain under `installer\`, while Linux packaging, systemd configuration, and its archive live under `installer-linux\`.
 

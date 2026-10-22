@@ -71,32 +71,63 @@ if (OperatingSystem.IsWindows())
         }
     }
 }
+var developmentMode = builder.Environment.IsDevelopment();
+var oidcAuthority = builder.Configuration["Authentication:Authority"];
+var oidcClientId = builder.Configuration["Authentication:ClientId"];
+var oidcClientSecret = builder.Configuration["Authentication:ClientSecret"];
+var oidcValues = new[] { oidcAuthority, oidcClientId, oidcClientSecret };
+var oidcConfigured = oidcValues.All(value => !string.IsNullOrWhiteSpace(value));
+var oidcPartiallyConfigured = oidcValues.Any(value => !string.IsNullOrWhiteSpace(value)) && !oidcConfigured;
+if (oidcPartiallyConfigured)
+{
+    throw new InvalidOperationException("Configure Authentication:Authority, Authentication:ClientId, and Authentication:ClientSecret together, or leave all three empty for loopback-only access.");
+}
+
+var localOnlyMode = !oidcConfigured;
+var agentApiEnabled = builder.Configuration.GetValue<bool>("AgentApi:Enabled");
+if (agentApiEnabled && !oidcConfigured)
+{
+    throw new InvalidOperationException("Agent API requires OIDC to be configured.");
+}
+
+var configuredUrls = builder.Configuration["urls"];
+if (localOnlyMode && !string.IsNullOrWhiteSpace(configuredUrls) &&
+    configuredUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Any(url => !IsLoopbackUrl(url)))
+{
+    throw new InvalidOperationException("Without OIDC, SQL DAM can only bind to localhost or a loopback IP address.");
+}
+
+static bool IsLoopbackUrl(string value) =>
+    Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+    (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+     (IPAddress.TryParse(uri.Host, out var address) && IPAddress.IsLoopback(address)));
+
 if (OperatingSystem.IsWindows())
 {
     builder.Host.UseWindowsService();
 }
-builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:5055");
+builder.WebHost.UseUrls(configuredUrls ?? "http://127.0.0.1:5055");
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IClaimsTransformation, DamUserClaimsTransformation>();
-var developmentMode = builder.Environment.IsDevelopment();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(DamPolicies.Read, policy =>
     {
-        if (developmentMode) policy.RequireAssertion(_ => true);
+        if (developmentMode || localOnlyMode) policy.RequireAssertion(_ => true);
         else policy.RequireAuthenticatedUser().RequireRole(DamRoles.SuperAdmin, DamRoles.Admin, DamRoles.Auditor, DamRoles.ReadUser);
     });
     options.AddPolicy(DamPolicies.Admin, policy =>
     {
-        if (developmentMode) policy.RequireAssertion(_ => true);
+        if (developmentMode || localOnlyMode) policy.RequireAssertion(_ => true);
         else policy.RequireAuthenticatedUser().RequireRole(DamRoles.SuperAdmin, DamRoles.Admin);
     });
     options.AddPolicy(DamPolicies.SuperAdmin, policy =>
     {
-        if (developmentMode) policy.RequireAssertion(_ => true);
+        if (developmentMode || localOnlyMode) policy.RequireAssertion(_ => true);
         else policy.RequireAuthenticatedUser().RequireRole(DamRoles.SuperAdmin);
     });
 });
@@ -155,36 +186,11 @@ builder.Services.AddSingleton<SqlAuditReader>();
 builder.Services.AddSingleton<SqlSchemaBrowserService>();
 builder.Services.AddHostedService<SecurityEventCollector>();
 
-var oidcAuthority = builder.Configuration["Authentication:Authority"];
-var oidcClientId = builder.Configuration["Authentication:ClientId"];
-var oidcClientSecret = builder.Configuration["Authentication:ClientSecret"];
-var oidcValues = new[] { oidcAuthority, oidcClientId, oidcClientSecret };
-var oidcConfigured = oidcValues.All(value => !string.IsNullOrWhiteSpace(value));
-var oidcPartiallyConfigured = oidcValues.Any(value => !string.IsNullOrWhiteSpace(value)) && !oidcConfigured;
-
-if (oidcPartiallyConfigured)
-{
-    throw new InvalidOperationException("Configure Authentication:Authority, Authentication:ClientId, and Authentication:ClientSecret together.");
-}
-
-if (!builder.Environment.IsDevelopment() && !oidcConfigured)
-{
-    throw new InvalidOperationException("OIDC authentication must be configured outside Development.");
-}
-
-var agentApiEnabled = builder.Configuration.GetValue<bool>("AgentApi:Enabled");
-if (agentApiEnabled && !oidcConfigured)
-{
-    throw new InvalidOperationException("Agent API requires OIDC to be configured.");
-}
-
 if (oidcConfigured)
 {
     if (!Uri.TryCreate(oidcAuthority, UriKind.Absolute, out var authorityUri) ||
         (!builder.Environment.IsDevelopment() && authorityUri.Scheme != Uri.UriSchemeHttps))
-    {
         throw new InvalidOperationException("Authentication:Authority must be a valid HTTPS URL outside Development.");
-    }
 
     builder.Services.AddAuthentication(options =>
         {
@@ -266,7 +272,20 @@ if (!string.IsNullOrWhiteSpace(bootstrapSuperAdminEmail))
 }
 
 app.UseForwardedHeaders();
-if (!app.Environment.IsDevelopment())
+if (localOnlyMode)
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Connection.RemoteIpAddress is not { } remoteIp || !IPAddress.IsLoopback(remoteIp))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
+        await next();
+    });
+}
+else if (!app.Environment.IsDevelopment())
 {
     app.Use(async (context, next) =>
     {

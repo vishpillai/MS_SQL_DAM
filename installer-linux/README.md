@@ -32,7 +32,7 @@ cd SQL-DAM-linux-x64
 sudo bash install.sh
 ```
 
-On first installation the script prompts for the organization name and identifier, initial Super Admin email, OIDC authority/client ID/client secret, and an optional allowed DNS host name. The initial administrator must already exist in the identity provider. The secret is hidden while entered and the environment file is created with root-only permissions. If remote browser access is needed, enter the name used by the HTTPS reverse proxy; the installer adds it to the host allow-list.
+On first installation the script prompts for the organization name and identifier, initial Super Admin email, OIDC authority/client ID/client secret, and an optional allowed DNS host name. Leave all OIDC values, the admin email, and allowed host blank for local-only loopback access. Remote browser access requires all OIDC values and an initial Super Admin that already exists in the identity provider; the secret is hidden while entered and the environment file is created with root-only permissions. If remote access is enabled, the installer adds the reverse proxy host to the host allow-list.
 
 The installer creates a locked-down `sqldam` system account and installs a systemd unit. App files go to `/opt/sqldam`, configuration to `/etc/sqldam/sqldam.env`, and the SQLite database and Data Protection key ring to `/var/lib/sqldam`. Place optional Db2 CA certificates under `/var/lib/sqldam/certs/` so the service account can read them. The app binds to `127.0.0.1:5055`; check `systemctl status sqldam` and `journalctl -u sqldam` if startup fails.
 
